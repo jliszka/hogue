@@ -13,12 +13,15 @@ data Request = Request {
   user_id :: Field Request String
 }
 
-instance Queryable Request where
-  collection _ = "requests"
+instance Schema Request where
   schema = Request {
     _id = field "_id",
     user_id = field "user_id"
   }
+
+instance Queryable Request where
+  collection _ = "requests"
+
 
 q :: Query Request Request
 q = find [ _id $> 3, user_id $= "hi" ] $. asc _id $. limit 10

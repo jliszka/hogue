@@ -18,7 +18,8 @@ infixl 9 $.
 
 data DB = DB {
   dbPipe :: Mongo.Pipe,
-  dbName :: T.Text }
+  dbName :: T.Text
+}
 
 getDB :: T.Text -> IO DB
 getDB dbName = do
@@ -32,7 +33,9 @@ data Query m r = Query {
   sel :: [Select]
 } deriving Show
 
-data Clause m = forall a . (Show a, Val a) => Clause T.Text (Cond a)
+data Clause m =
+  forall a . (Show a, Val a) =>
+  Clause T.Text (Cond a)
 
 data (Show a, Val a) => Cond a =
     Eq a       -- $=
@@ -96,7 +99,7 @@ data Sort =
 
 data Select = Select T.Text deriving Show
 
-data (Show a, Val a) => Field m a = Field {
+data Show a => Field m a = Field {
   name :: T.Text,
   value :: a
 } deriving (Show, Eq)
@@ -104,36 +107,26 @@ data (Show a, Val a) => Field m a = Field {
 instance Show (Clause m) where
   show (Clause n c) = show n ++ ": " ++ show c
 
-class Embeddable m where
-  schema2 :: m
-  field2 :: Val a => T.Text -> Field m a
-  field2 name = Field name undefined
-  (~..) :: (Show a, Val a) => m -> (m -> Field m a) -> a
-  m ~.. fld = let Field _ a = fld m in a
 
 
-{-
-instance (Eq e, Show e, Embeddable e) => Val e where
-  val a = Bson.Doc [ ]
-  cast' doc = undefined
--}
-
-class Queryable m where
-  collection :: Query m r -> T.Text
+class Schema m where
   schema :: m
+
+  field :: Show a => T.Text -> Field m a
+  field name = Field name undefined
+
+  (~.) :: Show a => m -> (m -> Field m a) -> a
+  m ~. fld = let Field _ a = fld m in a
+
+  val :: Show a => a -> Field m a
+  val a = Field undefined a
+
+
+class Schema m => Queryable m where
+  collection :: Query m r -> T.Text
 
   find :: [Clause m] -> Query m m
   find cls = Query cls 0 [] []
-
-  field :: Val a => T.Text -> Field m a
-  field name = Field name undefined
-
-  val :: Val a => a -> Field m a
-  val a = Field undefined a
-
-  (~.) :: (Show a, Val a) => m -> (m -> Field m a) -> a
-  m ~. fld = let Field _ a = fld m in a
-
 
   -- QUERY OPERATORS
 
@@ -187,11 +180,11 @@ class Queryable m where
 
   -- SUBFIELDS
 
-  (/.) :: (Embeddable e, Val e, Show a, Val a) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
+  (/.) :: (Schema e, Show a, Show e) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
   outer /. inner =
     let
       Field n1 _ = outer schema
-      Field n2 _ = inner schema2
+      Field n2 _ = inner schema
     in \m -> field $ T.concat [ n1, ".", n2 ]
 
 
@@ -232,7 +225,7 @@ class Queryable m where
       mkClause (Clause fieldName (Contains a)) = fieldName =: a
       mkClause (Clause fieldName cond) = fieldName =: (mkCond cond)
 
-      mkCond :: Bson.Val a => Cond a -> Bson.Field
+      mkCond :: Val a => Cond a -> Bson.Field
       mkCond (Neq a) = "$neq" =: a
       mkCond (In a) = "$in" =: a
       mkCond (NotIn a) = "$nin" =: a
