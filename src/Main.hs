@@ -33,11 +33,11 @@ main =
 usersRoutes = do
   get (var // "requests") $ \userId -> do
     now <- liftIO getCurrentTime
-    let u = User { _id = userId, name = "Alfred", created_at = now }
-    let q = find [ Request._id ~> (Gt 3), Request.user_id ~> (Eq "hi") ] -- { limit = Just 10 }
+    -- let u = User { _id = userId, name = "Alfred", created_at = now }
+    -- let q = find [ Request._id ~> (Gt 3), Request.user_id ~> (Eq "hi") ] -- { limit = Just 10 }
     -- let r = Request { _id = "1", user_id = User._id u, created_at = now }
     -- let r2 = r { Request._id = requestId }
-    json $ u
+    text $ userId
 
 requestsRoutes = do
   get (var) $ \name ->

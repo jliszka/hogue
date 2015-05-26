@@ -20,12 +20,8 @@ instance Queryable Request where
     user_id = field "user_id"
   }
 
-($$) :: a -> (a -> b) -> b
-($$) a f = f a
-infixl 9 $$
-
-q :: Query Request
-q = find [ _id ~> (Gt 3), user_id ~> (Eq "hi") ] $$ asc _id $$ limit 10
+q :: Query Request Request
+q = find [ _id $> 3, user_id $= "hi" ] $. asc _id $. limit 10
 
 r :: Request
 r = Request {
