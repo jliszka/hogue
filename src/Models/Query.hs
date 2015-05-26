@@ -7,7 +7,7 @@ module Models.Query where
 import Data.Word (Word32)
 import qualified Data.Text as T
 import qualified Database.MongoDB as Mongo
-import Database.MongoDB ((=:))
+import Database.MongoDB ((=:), Val, Value(Int32))
 import qualified Data.Bson as Bson
 
 -- !#$%&*+./<=>?@\^|-~:
@@ -32,9 +32,9 @@ data Query m r = Query {
   sel :: [Select]
 } deriving Show
 
-data Clause m = forall a . (Show a, Mongo.Val a) => Clause T.Text (Cond a)
+data Clause m = forall a . (Show a, Val a) => Clause T.Text (Cond a)
 
-data (Show a, Mongo.Val a) => Cond a =
+data (Show a, Val a) => Cond a =
     Eq a       -- $=
   | Neq a      -- $/=
   | In [a]     -- $=*
@@ -47,11 +47,10 @@ data (Show a, Mongo.Val a) => Cond a =
   | All [a]    -- $*=*
   | Size Int   -- $#
   | Type MongoType -- $:
-  | Mod Int Int    -- $%
   | Exists Bool    -- $?
   deriving Show
 
-data (Show a, Mongo.Val a) => Mod a =
+data (Show a, Val a) => Mod a =
     Inc Int         -- $+
   | Mul Int         -- $*
   | CurrentDate     -- currentDate
@@ -68,7 +67,28 @@ data (Show a, Mongo.Val a) => Mod a =
   | AddAllToSet [a] -- $>=*
 
 
-data MongoType = MDouble | MString | MObject deriving Show
+data MongoType =
+  TDouble | TString | TObject | TArray | TBinary | TObjectId | TBoolean
+  | TDate | TNull | TRegex | TSymbol | TInt32 | TTimestamp | TInt64
+  deriving (Show, Eq)
+
+instance Val MongoType where
+  val t = case t of
+    TDouble -> Int32 1
+    TString -> Int32 2
+    TObject -> Int32 3
+    TArray -> Int32 4
+    TBinary -> Int32 5
+    TObjectId -> Int32 7
+    TBoolean -> Int32 8
+    TDate -> Int32 9
+    TNull -> Int32 10
+    TRegex -> Int32 11
+    TSymbol -> Int32 14
+    TInt32 -> Int32 16
+    TTimestamp -> Int32 17
+    TInt64 -> Int32 18
+  cast' doc = undefined
 
 data Sort =
     Asc T.Text
@@ -76,7 +96,7 @@ data Sort =
 
 data Select = Select T.Text deriving Show
 
-data (Show a, Mongo.Val a) => Field m a = Field {
+data (Show a, Val a) => Field m a = Field {
   name :: T.Text,
   value :: a
 } deriving (Show, Eq)
@@ -86,14 +106,14 @@ instance Show (Clause m) where
 
 class Embeddable m where
   schema2 :: m
-  field2 :: Mongo.Val a => T.Text -> Field m a
+  field2 :: Val a => T.Text -> Field m a
   field2 name = Field name undefined
-  (~..) :: (Show a, Mongo.Val a) => m -> (m -> Field m a) -> a
+  (~..) :: (Show a, Val a) => m -> (m -> Field m a) -> a
   m ~.. fld = let Field _ a = fld m in a
 
 
 {-
-instance (Eq e, Show e, Embeddable e) => Mongo.Val e where
+instance (Eq e, Show e, Embeddable e) => Val e where
   val a = Bson.Doc [ ]
   cast' doc = undefined
 -}
@@ -105,60 +125,92 @@ class Queryable m where
   find :: [Clause m] -> Query m m
   find cls = Query cls 0 [] []
 
-  mkClause :: (Show a, Mongo.Val a, Show b, Mongo.Val b) => (m -> Field m a) -> Cond b -> Clause m
-  mkClause fld cond = let Field name _ = fld schema in Clause name cond
+  field :: Val a => T.Text -> Field m a
+  field name = Field name undefined
 
-  (~>) :: (Show a, Mongo.Val a) => (m -> Field m a) -> Cond a -> Clause m
-  fld ~> cond = mkClause fld cond
+  val :: Val a => a -> Field m a
+  val a = Field undefined a
 
-  ($=) :: (Show a, Mongo.Val a) => (m -> Field m a) -> a -> Clause m
-  fld $= a = mkClause fld $ Eq a
-
-  ($/=) :: (Show a, Mongo.Val a) => (m -> Field m a) -> a -> Clause m
-  fld $/= a = mkClause fld $ Neq a
-
-  ($=*) :: (Show a, Mongo.Val a) => (m -> Field m a) -> [a] -> Clause m
-  fld $=* a = mkClause fld $ In a
-
-  ($*=) :: (Show a, Mongo.Val a) => (m -> Field m [a]) -> a -> Clause m
-  fld $*= a = mkClause fld $ Contains a
-
-  ($>) :: (Show a, Mongo.Val a) => (m -> Field m a) -> a -> Clause m
-  fld $> a = mkClause fld $ Gt a
-
-  ($<) :: (Show a, Mongo.Val a) => (m -> Field m a) -> a -> Clause m
-  fld $< a = mkClause fld $ Lt a
-
-  ($?) :: (Show a, Mongo.Val a) => (m -> Field m a) -> Bool -> Clause m
-  fld $? a = mkClause fld $ (Exists a :: Cond Bool)
-
-  (~.) :: (Show a, Mongo.Val a) => m -> (m -> Field m a) -> a
+  (~.) :: (Show a, Val a) => m -> (m -> Field m a) -> a
   m ~. fld = let Field _ a = fld m in a
 
-  (/.) :: (Embeddable e, Mongo.Val e, Show a, Mongo.Val a) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
+
+  -- QUERY OPERATORS
+
+  mkClause :: (Show a, Val a, Show b, Val b) => (m -> Field m a) -> Cond b -> Clause m
+  mkClause fld cond = let Field name _ = fld schema in Clause name cond
+
+  (~>) :: (Show a, Val a) => (m -> Field m a) -> Cond a -> Clause m
+  fld ~> cond = mkClause fld cond
+
+  ($=) :: (Show a, Val a) => (m -> Field m a) -> a -> Clause m
+  fld $= a = mkClause fld $ Eq a
+
+  ($/=) :: (Show a, Val a) => (m -> Field m a) -> a -> Clause m
+  fld $/= a = mkClause fld $ Neq a
+
+  ($>) :: (Show a, Val a) => (m -> Field m a) -> a -> Clause m
+  fld $> a = mkClause fld $ Gt a
+
+  ($<) :: (Show a, Val a) => (m -> Field m a) -> a -> Clause m
+  fld $< a = mkClause fld $ Lt a
+
+  ($>=) :: (Show a, Val a) => (m -> Field m a) -> a -> Clause m
+  fld $>= a = mkClause fld $ GtEq a
+
+  ($<=) :: (Show a, Val a) => (m -> Field m a) -> a -> Clause m
+  fld $<= a = mkClause fld $ LtEq a
+
+  ($=*) :: (Show a, Val a) => (m -> Field m a) -> [a] -> Clause m
+  fld $=* a = mkClause fld $ In a
+
+  ($/=*) :: (Show a, Val a) => (m -> Field m a) -> [a] -> Clause m
+  fld $/=* a = mkClause fld $ NotIn a
+
+  ($*=) :: (Show a, Val a) => (m -> Field m [a]) -> a -> Clause m
+  fld $*= a = mkClause fld $ Contains a
+
+  ($*=*) :: (Show a, Val a) => (m -> Field m [a]) -> [a] -> Clause m
+  fld $*=* a = mkClause fld $ All a
+
+  ($?) :: (Show a, Val a) => (m -> Field m a) -> Bool -> Clause m
+  fld $? b = mkClause fld $ (Exists b :: Cond Bool)
+
+  ($#) :: (Show a, Val a) => (m -> Field m a) -> Int -> Clause m
+  fld $# n = mkClause fld $ (Size n :: Cond Int)
+
+  ($:) :: (Show a, Val a) => (m -> Field m a) -> MongoType -> Clause m
+  fld $: t = mkClause fld $ (Type t :: Cond MongoType)
+
+  -- UPDATE OPERATORS
+
+
+  -- SUBFIELDS
+
+  (/.) :: (Embeddable e, Val e, Show a, Val a) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
   outer /. inner =
     let
       Field n1 _ = outer schema
       Field n2 _ = inner schema2
     in \m -> field $ T.concat [ n1, ".", n2 ]
 
-  field :: Mongo.Val a => T.Text -> Field m a
-  field name = Field name undefined
 
-  val :: Mongo.Val a => a -> Field m a
-  val a = Field undefined a
+  -- QUERY OPTIONS
 
   limit :: Word32 -> Query m r -> Query m r
   limit n q = q { lim = n }
 
-  asc :: Mongo.Val a => (m -> Field m a) -> Query m r -> Query m r
+  asc :: Val a => (m -> Field m a) -> Query m r -> Query m r
   asc fld q = let Field name _ = fld schema in q { srt = Asc name : srt q }
 
-  desc :: Mongo.Val a => (m -> Field m a) -> Query m r -> Query m r
+  desc :: Val a => (m -> Field m a) -> Query m r -> Query m r
   desc fld q = let Field name _ = fld schema in q { srt = Desc name : srt q }
 
-  select :: Mongo.Val r => (m -> Field m r) -> Query m m -> Query m r
+  select :: Val r => (m -> Field m r) -> Query m m -> Query m r
   select fld q = let Field name _ = fld schema in q { sel = [Select name] }
+
+
+  -- QUERY EXECUTION
 
   fetch :: DB -> Query m r -> IO [Mongo.Document]
   fetch db q = run $ act >>= Mongo.rest
@@ -183,9 +235,15 @@ class Queryable m where
       mkCond :: Bson.Val a => Cond a -> Bson.Field
       mkCond (Neq a) = "$neq" =: a
       mkCond (In a) = "$in" =: a
+      mkCond (NotIn a) = "$nin" =: a
       mkCond (Gt a) = "$gt" =: a
       mkCond (Lt a) = "$lt" =: a
-      mkCond (Exists a) = "$exists" =: a
+      mkCond (GtEq a) = "$gte" =: a
+      mkCond (LtEq a) = "$lte" =: a
+      mkCond (All a) = "$all" =: a
+      mkCond (Exists b) = "$exists" =: b
+      mkCond (Size n) = "$size" =: n
+      mkCond (Type t) = "$type" =: t
 
       mkSort :: Sort -> Bson.Field
       mkSort (Asc fieldName) = fieldName =: (1 :: Int)
@@ -193,7 +251,6 @@ class Queryable m where
 
       mkProject :: Select -> Bson.Field
       mkProject (Select fieldName) = fieldName =: (1 :: Int)
-
 
   -- deserialize :: BSON -> m
 
