@@ -84,6 +84,20 @@ data (Show a, Mongo.Val a) => Field m a = Field {
 instance Show (Clause m) where
   show (Clause n c) = show n ++ ": " ++ show c
 
+class Embeddable m where
+  schema2 :: m
+  field2 :: Mongo.Val a => T.Text -> Field m a
+  field2 name = Field name undefined
+  (~..) :: (Show a, Mongo.Val a) => m -> (m -> Field m a) -> a
+  m ~.. fld = let Field _ a = fld m in a
+
+
+{-
+instance (Eq e, Show e, Embeddable e) => Mongo.Val e where
+  val a = Bson.Doc [ ]
+  cast' doc = undefined
+-}
+
 class Queryable m where
   collection :: Query m r -> T.Text
   schema :: m
@@ -120,6 +134,13 @@ class Queryable m where
 
   (~.) :: (Show a, Mongo.Val a) => m -> (m -> Field m a) -> a
   m ~. fld = let Field _ a = fld m in a
+
+  (/.) :: (Embeddable e, Mongo.Val e, Show a, Mongo.Val a) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
+  outer /. inner =
+    let
+      Field n1 _ = outer schema
+      Field n2 _ = inner schema2
+    in \m -> field $ T.concat [ n1, ".", n2 ]
 
   field :: Mongo.Val a => T.Text -> Field m a
   field name = Field name undefined
