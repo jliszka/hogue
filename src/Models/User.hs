@@ -51,7 +51,7 @@ run q = do
   q $. fetch db
 
 q1 = find [ first_name $= "Jason" ] $. limit 10
-q2 = find [ first_name $= "Jason", roles $*= "customer" ] $. select _id
+q2 = find [ first_name $= "Jason", roles $*= "customer" ] $. select _id $. limit 5 $. asc last_name
 q3 = find [ loc /. city $= "New York" ] $. select (loc /. postal_code)
 q4 = find [ first_name $? True ]
 q5 = find [ primary_day $>= 1, primary_day $<= 5 ]
