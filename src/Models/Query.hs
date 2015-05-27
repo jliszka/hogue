@@ -223,49 +223,63 @@ class Schema m => Queryable m where
         Mongo.project = project
       }
         where
-          cls = mkClauses $ clauses q
+          cls = toBsonDocument $ clauses q
           coll = collection q
           limit = lim q
-          sort = reverse $ map mkSort $ srt q
-          project = map mkProject $ sel q
-
-          mkClauses :: [Clause m] -> [Bson.Field]
-          mkClauses cls = map mkGroup groups
-            where
-              groups = L.groupBy (\cl1 cl2 -> clauseFieldName cl1 == clauseFieldName cl2) cls
-              isEqClause :: Clause m -> Bool
-              isEqClause (Clause _ (Eq a)) = True
-              isEqClause (Clause _ (Contains a)) = True
-              isEqClause _ = False
-              mkGroup :: [Clause m] -> Bson.Field
-              mkGroup cls = case L.find isEqClause cls of
-                  Just (Clause fieldName (Eq a)) -> fieldName =: a
-                  Just (Clause fieldName (Contains a)) -> fieldName =: a
-                  Nothing -> (clauseFieldName $ head cls) =: map mkClause cls
+          sort = reverse $ map toBsonField $ srt q
+          project = map toBsonField $ sel q
 
 
-          mkClause :: Clause m -> Bson.Field
-          mkClause (Clause fieldName cond) = mkCond cond
+class ToBsonDocument a where
+  toBsonDocument :: a -> Bson.Document
 
-          mkCond :: Val a => Cond a -> Bson.Field
-          mkCond (Neq a) = "$neq" =: a
-          mkCond (In a) = "$in" =: a
-          mkCond (NotIn a) = "$nin" =: a
-          mkCond (Gt a) = "$gt" =: a
-          mkCond (Lt a) = "$lt" =: a
-          mkCond (GtEq a) = "$gte" =: a
-          mkCond (LtEq a) = "$lte" =: a
-          mkCond (All a) = "$all" =: a
-          mkCond (Exists b) = "$exists" =: b
-          mkCond (Size n) = "$size" =: n
-          mkCond (Type t) = "$type" =: t
+class ToBsonField a where
+  toBsonField :: a -> Bson.Field
 
-          mkSort :: Sort -> Bson.Field
-          mkSort (Asc fieldName) = fieldName =: (1 :: Int)
-          mkSort (Desc fieldName) = fieldName =: (-1 :: Int)
+instance ToBsonDocument [Clause m] where
+  toBsonDocument cls = mkClauses cls
+    where
+      mkClauses :: [Clause m] -> [Bson.Field]
+      mkClauses cls = map mkGroup groups
+        where
+          groups = L.groupBy (\cl1 cl2 -> clauseFieldName cl1 == clauseFieldName cl2) cls
+          isEqClause :: Clause m -> Bool
+          isEqClause (Clause _ (Eq a)) = True
+          isEqClause (Clause _ (Contains a)) = True
+          isEqClause _ = False
+          mkGroup :: [Clause m] -> Bson.Field
+          mkGroup cls = case L.find isEqClause cls of
+              Just (Clause fieldName (Eq a)) -> fieldName =: a
+              Just (Clause fieldName (Contains a)) -> fieldName =: a
+              Nothing -> (clauseFieldName $ head cls) =: map toBsonField cls
 
-          mkProject :: Select -> Bson.Field
-          mkProject (Select fieldName) = fieldName =: (1 :: Int)
+
+instance ToBsonField (Clause m) where
+  toBsonField (Clause _ cond) = toBsonField cond
+
+instance Val a => ToBsonField (Cond a) where
+  toBsonField cond = mkCond cond
+    where
+      mkCond :: Val a => Cond a -> Bson.Field
+      mkCond (Neq a) = "$neq" =: a
+      mkCond (In a) = "$in" =: a
+      mkCond (NotIn a) = "$nin" =: a
+      mkCond (Gt a) = "$gt" =: a
+      mkCond (Lt a) = "$lt" =: a
+      mkCond (GtEq a) = "$gte" =: a
+      mkCond (LtEq a) = "$lte" =: a
+      mkCond (All a) = "$all" =: a
+      mkCond (Exists b) = "$exists" =: b
+      mkCond (Size n) = "$size" =: n
+      mkCond (Type t) = "$type" =: t
+
+instance ToBsonField Sort where
+  toBsonField (Asc fieldName) = fieldName =: (1 :: Int)
+  toBsonField (Desc fieldName) = fieldName =: (-1 :: Int)
+
+instance ToBsonField Select where
+  toBsonField (Select fieldName) = fieldName =: (1 :: Int)
+
 
   -- deserialize :: BSON -> m
 
