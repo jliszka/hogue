@@ -273,8 +273,8 @@ instance ToBson [Clause m] where
           isEqClause _ = False
           mkGroup :: [Clause m] -> Bson.Field
           mkGroup cls = case L.find isEqClause cls of
-              Just (Clause fieldName (Eq a)) -> fieldName =: a
-              Just (Clause fieldName (Contains a)) -> fieldName =: a
+              Just (Clause fieldName (Eq a)) -> fieldName =: Bson.val a
+              Just (Clause fieldName (Contains a)) -> fieldName =: Bson.val a
               Nothing -> (clauseFieldName $ head cls) =: map toBsonField cls
 
 instance ToBson [Select] where
@@ -290,17 +290,17 @@ instance Val a => ToBsonField (Cond a) where
   toBsonField cond = mkCond cond
     where
       mkCond :: Val a => Cond a -> Bson.Field
-      mkCond (Neq a) = "$neq" =: a
-      mkCond (In a) = "$in" =: a
-      mkCond (NotIn a) = "$nin" =: a
-      mkCond (Gt a) = "$gt" =: a
-      mkCond (Lt a) = "$lt" =: a
-      mkCond (GtEq a) = "$gte" =: a
-      mkCond (LtEq a) = "$lte" =: a
-      mkCond (All a) = "$all" =: a
-      mkCond (Exists b) = "$exists" =: b
-      mkCond (Size n) = "$size" =: n
-      mkCond (Type t) = "$type" =: t
+      mkCond (Neq a) = "$neq" =: Bson.val a
+      mkCond (In a) = "$in" =: Bson.val a
+      mkCond (NotIn a) = "$nin" =: Bson.val a
+      mkCond (Gt a) = "$gt" =: Bson.val a
+      mkCond (Lt a) = "$lt" =: Bson.val a
+      mkCond (GtEq a) = "$gte" =: Bson.val a
+      mkCond (LtEq a) = "$lte" =: Bson.val a
+      mkCond (All a) = "$all" =: Bson.val a
+      mkCond (Exists b) = "$exists" =: Bson.val b
+      mkCond (Size n) = "$size" =: Bson.val n
+      mkCond (Type t) = "$type" =: Bson.val t
 
 instance ToBsonField Sort where
   toBsonField (Asc fieldName) = fieldName =: (1 :: Int)
