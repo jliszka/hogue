@@ -16,7 +16,8 @@ data User = User {
   last_name :: Field User String,
   updated_at :: Field User UTCTime,
   roles :: Field User [String],
-  loc :: Field User Location
+  loc :: Field User Location,
+  primary_day :: Field User Int
 }
 
 instance Schema User where
@@ -26,7 +27,8 @@ instance Schema User where
     last_name = field "last_name",
     updated_at = field "updated_at",
     roles = field "roles",
-    loc = field "location"
+    loc = field "location",
+    primary_day = field "primary_day"
   }
 
 instance Queryable User where
@@ -52,4 +54,5 @@ q1 = find [ first_name $= "Jason" ] $. limit 10
 q2 = find [ first_name $= "Jason", roles $*= "customer" ] $. select _id
 q3 = find [ loc /. city $= "New York" ] $. select (loc /. postal_code)
 q4 = find [ first_name $? True ]
+q5 = find [ primary_day $>= 1, primary_day $<= 5 ]
 
