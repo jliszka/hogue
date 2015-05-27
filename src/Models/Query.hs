@@ -224,27 +224,27 @@ class Schema m => Queryable m where
       }
         where
           coll = collection q
-          Bson.Doc cls = clauses q $. toBson
-          Bson.Doc sort = srt q $. reverse $. toBson
-          Bson.Doc project = sel q $. reverse $. toBson
+          cls = clauses q $. toBson
+          sort = srt q $. reverse $. toBson
+          project = sel q $. reverse $. toBson
           limit = lim q
 
 
 -- SHOW INSTANCES
 
 instance Queryable m => Show (Query m r) where
-  show q = T.concat (intro ++ select ++ outro ++ sort ++ limit)  $. T.unpack
+  show q = T.concat (intro ++ query ++ select ++ outro ++ sort ++ limit)  $. T.unpack
     where
-      intro = [ "db.", collection q, ".find(", query ]
+      intro = [ "db.", collection q, ".find(" ]
       outro = [ ")" ]
-      query = clauses q $. toBson $. bsonToText
+      query = [ clauses q $. toBson $. Bson.Doc $. bsonToText ]
       ifNotEmpty [] f = []
       ifNotEmpty xs f = f xs
-      select = ifNotEmpty (sel q) $ \sels -> [ ", ", sels $. toBson  $. bsonToText ]
-      sort = ifNotEmpty (srt q) $ \srts -> [ ".sort(" , srts $. reverse $. toBson  $. bsonToText, ")" ]
+      select = ifNotEmpty (sel q) $ \sels -> [ ", ", sels $. toBson  $. Bson.Doc $. bsonToText ]
+      sort = ifNotEmpty (srt q) $ \srts -> [ ".sort(" , srts $. reverse $. toBson  $. Bson.Doc $. bsonToText, ")" ]
       limit = if lim q > 0 then [ ".limit(" , T.pack $ show $ lim q, ")" ] else []
       bsonToText :: Bson.Value -> T.Text
-      bsonToText (Mongo.Doc fields) = T.concat [ "{ ", fieldsToText fields, " }" ]
+      bsonToText (Bson.Doc fields) = T.concat [ "{ ", fieldsToText fields, " }" ]
         where
           fieldsToText fields = T.intercalate ", " $ map fieldToText fields
           fieldToText (label Bson.:= value) = T.concat [ label, ": ", bsonToText value ]
@@ -255,13 +255,13 @@ instance Queryable m => Show (Query m r) where
 -- BSON SERIALIZATION
 
 class ToBson a where
-  toBson :: a -> Bson.Value
+  toBson :: a -> Bson.Document
 
 class ToBsonField a where
   toBsonField :: a -> Bson.Field
 
 instance ToBson [Clause m] where
-  toBson cls = Bson.Doc $ mkClauses cls
+  toBson cls = mkClauses cls
     where
       mkClauses :: [Clause m] -> [Bson.Field]
       mkClauses cls = map mkGroup groups
@@ -278,10 +278,10 @@ instance ToBson [Clause m] where
               Nothing -> (clauseFieldName $ head cls) =: map toBsonField cls
 
 instance ToBson [Select] where
-  toBson fields = Bson.Doc $ map toBsonField fields
+  toBson fields = map toBsonField fields
 
 instance ToBson [Sort] where
-  toBson fields = Bson.Doc $ map toBsonField fields
+  toBson fields = map toBsonField fields
 
 instance ToBsonField (Clause m) where
   toBsonField (Clause _ cond) = toBsonField cond
