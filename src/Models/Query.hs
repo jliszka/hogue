@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances, UndecidableInstances #-}
+{-# LANGUAGE DeriveGeneric, TypeOperators, FlexibleContexts #-}
 
 module Models.Query where
 
+import GHC.Generics
 import Data.Word (Word32)
 import qualified Data.List as L
 import qualified Data.Text as T
@@ -104,14 +106,83 @@ data Sort =
 
 data Select = Select T.Text deriving Show
 
-data Show a => Field m a = Field {
+data Field m a = Field {
   name :: T.Text,
   value :: a
-} deriving (Show, Eq)
+} deriving (Eq, Generic)
+
+instance Show a => Show (Field m a) where
+  show (Field name val) = T.unpack $ T.concat ["Field ", name, "=", T.pack $ show val ]
 
 instance Show (Clause m) where
   show (Clause n c) = show n ++ ": " ++ show c
 
+{- 
+
+M1 {unM1 = M1 {
+  unM1 = (M1 {
+    unM1 = K1 {unK1 = Field _id}
+  }
+  :*: 
+  (M1 {
+    unM1 = K1 {unK1 = Field first_name}
+  }
+  :*:
+  M1 {
+    unM1 = K1 {unK1 = Field last_name}
+  }))
+  :*:
+  ((M1 {
+    unM1 = K1 {unK1 = Field updated_at}
+  }
+  :*:
+  M1 {
+    unM1 = K1 {unK1 = Field roles}
+  })
+  :*:
+  (M1 {
+    unM1 = K1 {unK1 = Field location}
+  }
+  :*:
+  M1 {unM1 = K1 {unK1 = Field primary_day}}))}}
+-}
+
+class GFields f where
+  gfields :: f m -> [String]
+
+instance (GFields a, GFields b) => GFields (a :*: b) where
+  gfields (a :*: b) = gfields a ++ gfields b
+
+instance GFields a => GFields (M1 i c a) where
+  gfields (M1 a) = gfields a
+
+instance GField a => GFields (K1 i a) where
+  gfields (K1 a) = maybe [] (:[]) $ gfield a
+
+class GField f where
+  gfield :: f -> Maybe String
+
+instance GField (Field m a) where
+  gfield (Field n _) = Just (T.unpack n)
+
+
+class GParse f where
+  gparse :: Bson.Document -> f m -> f m
+
+instance (GParse a, GParse b) => GParse (a :*: b) where
+  gparse doc (a :*: b) = gparse doc a :*: gparse doc b
+
+instance GParse a => GParse (M1 i c a) where
+  gparse doc (M1 a) = M1 $ gparse doc a
+
+instance GLookup a => GParse (K1 i a) where
+  gparse doc (K1 a) = K1 $ glookup doc a
+
+class GLookup f where
+  glookup :: Bson.Document -> f -> f
+
+instance Val a => GLookup (Field m a) where
+  glookup doc (Field n _) = Field n $ maybe undefined id $ Bson.cast' $ Bson.valueAt n doc
 
 
 class Schema m where
@@ -125,6 +196,12 @@ class Schema m where
 
   val :: Show a => a -> Field m a
   val a = Field undefined a
+
+  fromBson :: (Generic m, GParse (Rep m)) => Bson.Document -> m
+  fromBson doc = fromBson' doc schema
+    where
+      fromBson' :: (Generic m, GParse (Rep m)) => Bson.Document -> m -> m
+      fromBson' doc schema = to $ gparse doc $ from schema
 
 
 class Schema m => Queryable m where
@@ -210,9 +287,10 @@ class Schema m => Queryable m where
 
   -- QUERY EXECUTION
 
-  fetch :: Queryable m => DB -> Query m r -> IO [Mongo.Document]
-  fetch db q = run $ act >>= Mongo.rest
+  fetch :: (Schema r, Generic r, GParse (Rep r), Queryable m) => DB -> Query m r -> IO [r]
+  fetch db q = fmap (fmap fromBson) docs
     where
+      docs = run $ act >>= Mongo.rest
       run act = Mongo.access (dbPipe db) Mongo.master (dbName db) act
       act = Mongo.find (mkQuery q)
 

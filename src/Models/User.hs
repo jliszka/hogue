@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric, FlexibleContexts #-}
 
 module Models.User where
 
@@ -16,9 +16,9 @@ data User = User {
   last_name :: Field User String,
   updated_at :: Field User UTCTime,
   roles :: Field User [String],
-  loc :: Field User Location,
+  -- loc :: Field User Location,
   primary_day :: Field User Int
-}
+} deriving (Show, Generic)
 
 instance Schema User where
   schema = User {
@@ -27,7 +27,7 @@ instance Schema User where
     last_name = field "last_name",
     updated_at = field "updated_at",
     roles = field "roles",
-    loc = field "location",
+    -- loc = field "location",
     primary_day = field "primary_day"
   }
 
@@ -45,14 +45,14 @@ instance Schema Location where
     postal_code = field "postal_code"
   }
 
-run :: Queryable m => Query m r -> IO [Mongo.Document]
+run :: (Schema r, Generic r, GParse (Rep r), Queryable m) => Query m r -> IO [r]
 run q = do
   db <- getDB "v2-staging"
   q $. fetch db
 
 q1 = find [ first_name $= "Jason" ] $. limit 10
 q2 = find [ first_name $= "Jason", roles $*= "customer" ] $. select _id $. limit 5 $. asc last_name
-q3 = find [ loc /. city $= "New York" ] $. select (loc /. postal_code)
+-- q3 = find [ loc /. city $= "New York" ] $. select (loc /. postal_code)
 q4 = find [ first_name $? True ]
 q5 = find [ primary_day $>= 1, primary_day $<= 5 ]
 
