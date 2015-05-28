@@ -16,9 +16,9 @@ data User = User {
   last_name :: Field User String,
   updated_at :: Field User UTCTime,
   roles :: Field User [String],
-  -- loc :: Field User Location,
+  loc :: EField User Location,
   primary_day :: Field User Int
-} deriving (Show, Generic)
+} deriving (Show, Eq, Generic)
 
 instance Schema User where
   schema = User {
@@ -27,7 +27,7 @@ instance Schema User where
     last_name = field "last_name",
     updated_at = field "updated_at",
     roles = field "roles",
-    -- loc = field "location",
+    loc = efield "location" schema,
     primary_day = field "primary_day"
   }
 
@@ -37,7 +37,7 @@ instance Queryable User where
 data Location = Location {
   city :: Field Location String,
   postal_code :: Field Location String
-} deriving (Show, Eq)
+} deriving (Show, Eq, Generic)
 
 instance Schema Location where
   schema = Location {
@@ -52,7 +52,8 @@ run q = do
 
 q1 = find [ first_name $= "Jason" ] $. limit 10
 q2 = find [ first_name $= "Jason", roles $*= "customer" ] $. select _id $. limit 5 $. asc last_name
--- q3 = find [ loc /. city $= "New York" ] $. select (loc /. postal_code)
+q3 = find [ loc /. city $= "New York" ] $. select (loc /. postal_code)
+q3' = find [ loc /. city $= "New York" ]
 q4 = find [ first_name $? True ]
 q5 = find [ primary_day $>= 1, primary_day $<= 5 ]
 

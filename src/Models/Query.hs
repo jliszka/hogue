@@ -111,8 +111,16 @@ data Field m a = Field {
   value :: a
 } deriving (Eq, Generic)
 
+data EField m a = EField {
+  ename :: T.Text,
+  evalue :: a
+} deriving (Eq, Generic)
+
 instance Show a => Show (Field m a) where
-  show (Field name val) = T.unpack $ T.concat ["Field ", name, "=", T.pack $ show val ]
+  show (Field name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
+
+instance Show a => Show (EField m a) where
+  show (EField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
 
 instance Show (Clause m) where
   show (Clause n c) = show n ++ ": " ++ show c
@@ -184,12 +192,20 @@ class GLookup f where
 instance Val a => GLookup (Field m a) where
   glookup doc (Field n _) = Field n $ maybe undefined id $ Bson.cast' $ Bson.valueAt n doc
 
+instance (Generic a, GParse (Rep a)) => GLookup (EField m a) where
+  glookup doc (EField n schema) = EField n $ to $ gparse subdoc $ from schema
+    where
+      Bson.Doc subdoc = Bson.valueAt n doc
+
 
 class Schema m where
   schema :: m
 
   field :: Show a => T.Text -> Field m a
   field name = Field name undefined
+
+  efield :: Show a => T.Text -> a -> EField m a
+  efield name schema = EField name schema
 
   (~.) :: Show a => m -> (m -> Field m a) -> a
   m ~. fld = let Field _ a = fld m in a
@@ -262,10 +278,10 @@ class Schema m => Queryable m where
 
   -- SUBFIELDS
 
-  (/.) :: (Schema e, Show a, Show e) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
+  (/.) :: (Schema e, Show a, Show e) => (m -> EField m e) -> (e -> Field e a) -> m -> Field m a
   outer /. inner =
     let
-      Field n1 _ = outer schema
+      EField n1 _ = outer schema
       Field n2 _ = inner schema
     in \m -> field $ T.concat [ n1, ".", n2 ]
 
