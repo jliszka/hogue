@@ -125,35 +125,8 @@ instance Show a => Show (EField m a) where
 instance Show (Clause m) where
   show (Clause n c) = show n ++ ": " ++ show c
 
-{- 
 
-M1 {unM1 = M1 {
-  unM1 = (M1 {
-    unM1 = K1 {unK1 = Field _id}
-  }
-  :*: 
-  (M1 {
-    unM1 = K1 {unK1 = Field first_name}
-  }
-  :*:
-  M1 {
-    unM1 = K1 {unK1 = Field last_name}
-  }))
-  :*:
-  ((M1 {
-    unM1 = K1 {unK1 = Field updated_at}
-  }
-  :*:
-  M1 {
-    unM1 = K1 {unK1 = Field roles}
-  })
-  :*:
-  (M1 {
-    unM1 = K1 {unK1 = Field location}
-  }
-  :*:
-  M1 {unM1 = K1 {unK1 = Field primary_day}}))}}
--}
+-- GENERIC PARSING
 
 class GFields f where
   gfields :: f m -> [String]
@@ -192,11 +165,13 @@ class GLookup f where
 instance Val a => GLookup (Field m a) where
   glookup doc (Field n _) = Field n $ maybe undefined id $ Bson.cast' $ Bson.valueAt n doc
 
-instance (Generic a, GParse (Rep a)) => GLookup (EField m a) where
-  glookup doc (EField n schema) = EField n $ to $ gparse subdoc $ from schema
+instance (Schema a, Generic a, GParse (Rep a)) => GLookup (EField m a) where
+  glookup doc (EField n _) = EField n $ to $ gparse subdoc $ from (schema :: Schema a => a)
     where
       Bson.Doc subdoc = Bson.valueAt n doc
 
+
+-- SCHEMA
 
 class Schema m where
   schema :: m
@@ -204,8 +179,8 @@ class Schema m where
   field :: Show a => T.Text -> Field m a
   field name = Field name undefined
 
-  efield :: Show a => T.Text -> a -> EField m a
-  efield name schema = EField name schema
+  efield :: Show a => T.Text -> EField m a
+  efield name = EField name undefined
 
   (~.) :: Show a => m -> (m -> Field m a) -> a
   m ~. fld = let Field _ a = fld m in a
@@ -214,10 +189,7 @@ class Schema m where
   val a = Field undefined a
 
   fromBson :: (Generic m, GParse (Rep m)) => Bson.Document -> m
-  fromBson doc = fromBson' doc schema
-    where
-      fromBson' :: (Generic m, GParse (Rep m)) => Bson.Document -> m -> m
-      fromBson' doc schema = to $ gparse doc $ from schema
+  fromBson doc = to $ gparse doc $ from (schema :: m)
 
 
 class Schema m => Queryable m where

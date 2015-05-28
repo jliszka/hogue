@@ -27,7 +27,7 @@ instance Schema User where
     last_name = field "last_name",
     updated_at = field "updated_at",
     roles = field "roles",
-    loc = efield "location" schema,
+    loc = efield "location",
     primary_day = field "primary_day"
   }
 
