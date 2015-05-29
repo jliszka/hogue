@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances, UndecidableInstances #-}
@@ -33,7 +34,7 @@ data Query m r = Query {
   clauses :: [Clause m],
   lim :: Word32,
   srt :: [Sort],
-  sel :: [Select]
+  sel :: Select m r
 }
 
 data Clause m =
@@ -104,7 +105,9 @@ data Sort =
     Asc T.Text
   | Desc T.Text deriving Show
 
-data Select = Select T.Text deriving Show
+data Select m r where
+  SelectAll :: (Generic m, GParse (Rep m)) => Select m m
+  Select1 :: Val r => Field m r -> Select m r
 
 data Field m a = Field {
   name :: T.Text,
@@ -173,7 +176,7 @@ instance (Schema a, Generic a, GParse (Rep a)) => GLookup (EField m a) where
 
 -- SCHEMA
 
-class Schema m where
+class (Generic m, GParse (Rep m)) => Schema m where
   schema :: m
 
   field :: Show a => T.Text -> Field m a
@@ -188,7 +191,7 @@ class Schema m where
   val :: Show a => a -> Field m a
   val a = Field undefined a
 
-  fromBson :: (Generic m, GParse (Rep m)) => Bson.Document -> m
+  fromBson :: Bson.Document -> m
   fromBson doc = to $ gparse doc $ from (schema :: m)
 
 
@@ -196,7 +199,7 @@ class Schema m => Queryable m where
   collection :: Query m r -> T.Text
 
   find :: [Clause m] -> Query m m
-  find cls = Query cls 0 [] []
+  find cls = Query cls 0 [] SelectAll
 
   -- QUERY OPERATORS
 
@@ -270,14 +273,20 @@ class Schema m => Queryable m where
   desc fld q = let Field name _ = fld schema in q { srt = Desc name : srt q }
 
   select :: Val r => (m -> Field m r) -> Query m m -> Query m r
-  select fld q = let Field name _ = fld schema in q { sel = [Select name] }
+  select fld q = q { sel = Select1 $ fld schema }
 
 
   -- QUERY EXECUTION
 
-  fetch :: (Schema r, Generic r, GParse (Rep r), Queryable m) => DB -> Query m r -> IO [r]
-  fetch db q = fmap (fmap fromBson) docs
+  fetch :: Queryable m => DB -> Query m r -> IO [r]
+  fetch db q = case sel q of
+    SelectAll -> fmap (fmap fromBson) docs
+    Select1 f -> fmap (fmap $ fieldFromBson f) docs
     where
+      fieldFromBson :: Val r => Field m r -> Bson.Document -> r
+      fieldFromBson f doc = a
+        where
+          Field _ a = glookup doc f
       docs = run $ act >>= Mongo.rest
       run act = Mongo.access (dbPipe db) Mongo.master (dbName db) act
       act = Mongo.find (mkQuery q)
@@ -292,8 +301,10 @@ class Schema m => Queryable m where
           coll = collection q
           cls = clauses q $. toBson
           sort = srt q $. reverse $. toBson
-          project = sel q $. reverse $. toBson
+          project = sel q $. toBson
           limit = lim q
+
+
 
 
 -- SHOW INSTANCES
@@ -306,7 +317,10 @@ instance Queryable m => Show (Query m r) where
       query = [ clauses q $. toBson $. Bson.Doc $. bsonToText ]
       ifNotEmpty [] f = []
       ifNotEmpty xs f = f xs
-      select = ifNotEmpty (sel q) $ \sels -> [ ", ", sels $. toBson  $. Bson.Doc $. bsonToText ]
+      select = mkSelect $ sel q
+        where
+          mkSelect SelectAll = []
+          mkSelect (Select1 f) = [ ", ", Select1 f $. toBson $. Bson.Doc $. bsonToText ]
       sort = ifNotEmpty (srt q) $ \srts -> [ ".sort(" , srts $. reverse $. toBson  $. Bson.Doc $. bsonToText, ")" ]
       limit = if lim q > 0 then [ ".limit(" , T.pack $ show $ lim q, ")" ] else []
       bsonToText :: Bson.Value -> T.Text
@@ -343,8 +357,9 @@ instance ToBson [Clause m] where
               Just (Clause fieldName (Contains a)) -> fieldName =: Bson.val a
               Nothing -> (clauseFieldName $ head cls) =: map toBsonField cls
 
-instance ToBson [Select] where
-  toBson fields = map toBsonField fields
+instance ToBson (Select m a) where
+  toBson SelectAll = []
+  toBson (Select1 (Field fieldName _)) = [ fieldName =: (1 :: Int) ]
 
 instance ToBson [Sort] where
   toBson fields = map toBsonField fields
@@ -371,7 +386,4 @@ instance Val a => ToBsonField (Cond a) where
 instance ToBsonField Sort where
   toBsonField (Asc fieldName) = fieldName =: (1 :: Int)
   toBsonField (Desc fieldName) = fieldName =: (-1 :: Int)
-
-instance ToBsonField Select where
-  toBsonField (Select fieldName) = fieldName =: (1 :: Int)
 

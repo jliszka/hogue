@@ -11,7 +11,7 @@ import Models.Query
 data Request = Request {
   _id :: Field Request Int,
   user_id :: Field Request String
-}
+} deriving Generic
 
 instance Schema Request where
   schema = Request {
