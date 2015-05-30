@@ -109,20 +109,12 @@ data Select m r where
   SelectAll :: (Generic m, GParse (Rep m)) => Select m m
   Select1 :: Val r => Field m r -> Select m r
 
-data Field m a = Field {
-  name :: T.Text,
-  value :: a
-} deriving (Eq, Generic)
-
-data EField m a = EField {
-  ename :: T.Text,
-  evalue :: a
-} deriving (Eq, Generic)
+data Field m a where
+  Field :: Val a => T.Text -> a -> Field m a
+  EField :: (Schema a, Generic a, GParse (Rep a)) => T.Text -> a -> Field m a
 
 instance Show a => Show (Field m a) where
   show (Field name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
-
-instance Show a => Show (EField m a) where
   show (EField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
 
 instance Show (Clause m) where
@@ -165,10 +157,8 @@ instance GLookup a => GParse (K1 i a) where
 class GLookup f where
   glookup :: Bson.Document -> f -> f
 
-instance Val a => GLookup (Field m a) where
+instance GLookup (Field m a) where
   glookup doc (Field n _) = Field n $ maybe undefined id $ Bson.cast' $ Bson.valueAt n doc
-
-instance (Schema a, Generic a, GParse (Rep a)) => GLookup (EField m a) where
   glookup doc (EField n _) = EField n $ to $ gparse subdoc $ from (schema :: Schema a => a)
     where
       Bson.Doc subdoc = Bson.valueAt n doc
@@ -179,16 +169,16 @@ instance (Schema a, Generic a, GParse (Rep a)) => GLookup (EField m a) where
 class (Generic m, GParse (Rep m)) => Schema m where
   schema :: m
 
-  field :: Show a => T.Text -> Field m a
+  field :: Val a => T.Text -> Field m a
   field name = Field name undefined
 
-  efield :: Show a => T.Text -> EField m a
+  efield :: Schema a => T.Text -> Field m a
   efield name = EField name undefined
 
   (~.) :: Show a => m -> (m -> Field m a) -> a
   m ~. fld = let Field _ a = fld m in a
 
-  val :: Show a => a -> Field m a
+  val :: Val a => a -> Field m a
   val a = Field undefined a
 
   fromBson :: Bson.Document -> m
@@ -203,8 +193,12 @@ class Schema m => Queryable m where
 
   -- QUERY OPERATORS
 
-  mkClause :: (Show a, Val a, Show b, Val b) => (m -> Field m a) -> Cond b -> Clause m
-  mkClause fld cond = let Field name _ = fld schema in Clause name cond
+  mkClause :: Val b => (m -> Field m a) -> Cond b -> Clause m
+  mkClause fld cond = Clause (mkName $ fld schema) cond
+    where
+      mkName :: Field m a -> T.Text
+      mkName (Field name _) = name
+      mkName (EField name _) = name
 
   (~>) :: (Show a, Val a) => (m -> Field m a) -> Cond a -> Clause m
   fld ~> cond = mkClause fld cond
@@ -253,7 +247,7 @@ class Schema m => Queryable m where
 
   -- SUBFIELDS
 
-  (/.) :: (Schema e, Show a, Show e) => (m -> EField m e) -> (e -> Field e a) -> m -> Field m a
+  (/.) :: (Schema e, Val a) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
   outer /. inner =
     let
       EField n1 _ = outer schema
@@ -283,11 +277,13 @@ class Schema m => Queryable m where
     SelectAll -> fmap (fmap fromBson) docs
     Select1 f -> fmap (fmap $ fieldFromBson f) docs
     where
+      docs = fetchBson db q
       fieldFromBson :: Val r => Field m r -> Bson.Document -> r
-      fieldFromBson f doc = a
-        where
-          Field _ a = glookup doc f
-      docs = run $ act >>= Mongo.rest
+      fieldFromBson (Field n _) doc = maybe undefined id $ doc Bson.!? n
+
+  fetchBson :: Queryable m => DB -> Query m r -> IO [Bson.Document]
+  fetchBson db q = run $ act >>= Mongo.rest
+    where
       run act = Mongo.access (dbPipe db) Mongo.master (dbName db) act
       act = Mongo.find (mkQuery q)
 

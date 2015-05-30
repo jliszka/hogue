@@ -8,7 +8,7 @@ import Data.Aeson (ToJSON)
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Models.Query
 import qualified Database.MongoDB as Mongo
-import Data.Bson (ObjectId, (=:), Value(Doc))
+import Data.Bson (ObjectId, (=:), Value(Doc), Document)
 
 data User = User {
   _id :: Field User ObjectId,
@@ -16,9 +16,9 @@ data User = User {
   last_name :: Field User String,
   updated_at :: Field User UTCTime,
   roles :: Field User [String],
-  loc :: EField User Location,
+  loc :: Field User Location,
   primary_day :: Field User Int
-} deriving (Show, Eq, Generic)
+} deriving (Show, Generic)
 
 instance Schema User where
   schema = User {
@@ -37,7 +37,7 @@ instance Queryable User where
 data Location = Location {
   city :: Field Location String,
   postal_code :: Field Location String
-} deriving (Show, Eq, Generic)
+} deriving (Show, Generic)
 
 instance Schema Location where
   schema = Location {
@@ -50,6 +50,11 @@ run q = do
   db <- getDB "v2-staging"
   q $. fetch db
 
+run' :: Queryable m => Query m r -> IO [Document]
+run' q = do
+  db <- getDB "v2-staging"
+  q $. fetchBson db
+
 q1 = find [ first_name $= "Jason" ] $. limit 10
 q2 = find [ first_name $= "Jason", roles $*= "customer" ] $. select last_name $. limit 5 $. asc last_name
 q2' = find [ first_name $= "Jason", roles $*= "customer" ] $. select _id $. limit 5 $. asc last_name
@@ -57,4 +62,5 @@ q3 = find [ loc /. city $= "New York" ] $. select (loc /. postal_code)
 q3' = find [ loc /. city $= "New York" ]
 q4 = find [ first_name $? True ]
 q5 = find [ primary_day $>= 1, primary_day $<= 5 ]
+q6 = find [ last_name $= "Test" ] -- $. select (loc /. postal_code)
 
