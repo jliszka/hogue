@@ -103,7 +103,8 @@ instance Val MongoType where
 
 data Sort =
     Asc T.Text
-  | Desc T.Text deriving Show
+  | Desc T.Text
+  deriving Show
 
 data Select m r where
   SelectAll :: (Generic m, GParse (Rep m)) => Select m m
@@ -111,14 +112,15 @@ data Select m r where
 
 data Field m a where
   Field :: Val a => T.Text -> a -> Field m a
+  OptField :: Val a => T.Text -> Maybe a -> Field m a
   EField :: Schema a => T.Text -> a -> Field m a
+  OptEField :: Schema a => T.Text -> Maybe a -> Field m a
 
-instance Show a => Show (Field m a) where
-  show (Field name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
-  show (EField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
-
-instance Show (Clause m) where
-  show (Clause n c) = show n ++ ": " ++ show c
+getFieldName :: Field m a -> T.Text
+getFieldName (Field name _) = name
+getFieldName (OptField name _) = name
+getFieldName (EField name _) = name
+getFieldName (OptEField name _) = name
 
 
 -- GENERIC PARSING
@@ -158,11 +160,18 @@ class GLookup f where
   glookup :: Bson.Document -> f -> f
 
 instance GLookup (Field m a) where
-  glookup doc (Field n _) = Field n $ maybe undefined id $ Bson.cast' $ Bson.valueAt n doc
+  glookup doc (Field n _) = Field n $ maybe err id $ Bson.lookup n doc
+    where
+      err = undefined -- TODO: error "friendly message"
+  glookup doc (OptField n _) = OptField n $ Bson.lookup n doc
   glookup doc (EField n _) = EField n $ fromBson subdoc
     where
       Bson.Doc subdoc = Bson.valueAt n doc
-
+  glookup doc (OptEField n _) = OptEField n $ fmap fromBson subdoc
+    where
+      subdoc = case Bson.lookup n doc of
+        Just (Bson.Doc d) -> Just d
+        Nothing -> Nothing
 
 -- SCHEMA
 
@@ -172,8 +181,14 @@ class (Generic m, GParse (Rep m)) => Schema m where
   field :: Val a => T.Text -> Field m a
   field name = Field name undefined
 
+  optfield :: Val a => T.Text -> Field m a
+  optfield name = OptField name undefined
+
   efield :: Schema a => T.Text -> Field m a
   efield name = EField name undefined
+
+  optefield :: Schema a => T.Text -> Field m a
+  optefield name = OptEField name undefined
 
   (~.) :: Show a => m -> (m -> Field m a) -> a
   m ~. fld = let Field _ a = fld m in a
@@ -197,11 +212,7 @@ class Schema m => Queryable m where
   -- QUERY OPERATORS
 
   mkClause :: Val b => (m -> Field m a) -> Cond b -> Clause m
-  mkClause fld cond = Clause (mkName $ fld schema) cond
-    where
-      mkName :: Field m a -> T.Text
-      mkName (Field name _) = name
-      mkName (EField name _) = name
+  mkClause fld cond = Clause (getFieldName $ fld schema) cond
 
   (~>) :: (Show a, Val a) => (m -> Field m a) -> Cond a -> Clause m
   fld ~> cond = mkClause fld cond
@@ -250,11 +261,11 @@ class Schema m => Queryable m where
 
   -- SUBFIELDS
 
-  (/.) :: (Schema e, Val a) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
+  (/.) :: (Schema m, Schema e, Val a) => (m -> Field m e) -> (e -> Field e a) -> m -> Field m a
   outer /. inner =
     let
-      EField n1 _ = outer schema
-      Field n2 _ = inner schema
+      n1 = getFieldName $ outer schema
+      n2 = getFieldName $ inner schema
     in \m -> field $ T.concat [ n1, ".", n2 ]
 
 
@@ -282,7 +293,7 @@ class Schema m => Queryable m where
     where
       docs = fetchBson db q
       fieldFromBson :: Val r => Field m r -> Bson.Document -> r
-      fieldFromBson (Field n _) doc = maybe undefined id $ doc Bson.!? n
+      fieldFromBson f doc = maybe undefined id $ doc Bson.!? (getFieldName f)
 
   fetchBson :: Queryable m => DB -> Query m r -> IO [Bson.Document]
   fetchBson db q = Mongo.access (dbPipe db) Mongo.master (dbName db) $ Mongo.find (mkQuery q) >>= Mongo.rest
@@ -305,8 +316,17 @@ class Schema m => Queryable m where
 
 -- SHOW INSTANCES
 
+instance Show a => Show (Field m a) where
+  show (Field name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
+  show (OptField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
+  show (EField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
+  show (OptEField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
+
+instance Show (Clause m) where
+  show (Clause n c) = show n ++ ": " ++ show c
+
 instance Queryable m => Show (Query m r) where
-  show q = T.concat (intro ++ query ++ select ++ outro ++ sort ++ limit)  $. T.unpack
+  show q = T.concat (intro ++ query ++ select ++ outro ++ sort ++ limit) $. T.unpack
     where
       intro = [ "db.", collection q, ".find(" ]
       outro = [ ")" ]
@@ -355,7 +375,7 @@ instance ToBson [Clause m] where
 
 instance ToBson (Select m a) where
   toBson SelectAll = []
-  toBson (Select1 (Field fieldName _)) = [ fieldName =: (1 :: Int) ]
+  toBson (Select1 f) = [ getFieldName f =: (1 :: Int) ]
 
 instance ToBson [Sort] where
   toBson fields = map toBsonField fields

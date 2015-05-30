@@ -27,8 +27,8 @@ instance Schema User where
     last_name = field "last_name",
     updated_at = field "updated_at",
     roles = field "roles",
-    loc = efield "location",
-    primary_day = field "primary_day"
+    loc = optefield "location",
+    primary_day = optfield "primary_day"
   }
 
 instance Queryable User where
