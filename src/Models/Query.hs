@@ -111,7 +111,7 @@ data Select m r where
 
 data Field m a where
   Field :: Val a => T.Text -> a -> Field m a
-  EField :: (Schema a, Generic a, GParse (Rep a)) => T.Text -> a -> Field m a
+  EField :: Schema a => T.Text -> a -> Field m a
 
 instance Show a => Show (Field m a) where
   show (Field name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
@@ -159,7 +159,7 @@ class GLookup f where
 
 instance GLookup (Field m a) where
   glookup doc (Field n _) = Field n $ maybe undefined id $ Bson.cast' $ Bson.valueAt n doc
-  glookup doc (EField n _) = EField n $ to $ gparse subdoc $ from (schema :: Schema a => a)
+  glookup doc (EField n _) = EField n $ fromBson subdoc
     where
       Bson.Doc subdoc = Bson.valueAt n doc
 
@@ -182,7 +182,10 @@ class (Generic m, GParse (Rep m)) => Schema m where
   val a = Field undefined a
 
   fromBson :: Bson.Document -> m
-  fromBson doc = to $ gparse doc $ from (schema :: m)
+  fromBson doc = fromBson' doc schema
+    where
+      fromBson' :: Schema m => Bson.Document -> m -> m
+      fromBson' doc schema = to $ gparse doc $ from schema
 
 
 class Schema m => Queryable m where
@@ -282,11 +285,8 @@ class Schema m => Queryable m where
       fieldFromBson (Field n _) doc = maybe undefined id $ doc Bson.!? n
 
   fetchBson :: Queryable m => DB -> Query m r -> IO [Bson.Document]
-  fetchBson db q = run $ act >>= Mongo.rest
+  fetchBson db q = Mongo.access (dbPipe db) Mongo.master (dbName db) $ Mongo.find (mkQuery q) >>= Mongo.rest
     where
-      run act = Mongo.access (dbPipe db) Mongo.master (dbName db) act
-      act = Mongo.find (mkQuery q)
-
       mkQuery :: Queryable m => Query m r -> Mongo.Query
       mkQuery q = (Mongo.select cls coll) {
         Mongo.limit = limit,
