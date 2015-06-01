@@ -8,6 +8,7 @@ import Data.Aeson (ToJSON)
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Models.Query
 
+{-
 data Request = Request {
   _id :: Field Request Int,
   user_id :: Field Request String
@@ -43,3 +44,4 @@ data Request = Request {
 } deriving (Show, Eq, Generic, ToJSON)
 -}
 
+-}
