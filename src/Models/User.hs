@@ -45,7 +45,7 @@ instance Schema Location where
     postal_code = field "postal_code"
   }
 
-run :: Queryable m => Query m r -> (DB -> Query m r -> IO a) -> IO a
+run :: a -> (DB -> a -> IO b) -> IO b
 run q f = do
   db <- getDB "v2-staging"
   f db q
@@ -59,3 +59,4 @@ q4 = find [ first_name $? True ]
 q5 = find [ primary_day $>= 1, primary_day $<= 5 ]
 q6 = find [ last_name $= "Test" ] -- $. select (loc /. postal_code)
 
+m1 = find [ last_name $= "Test" ] $. modify [ last_name $:= "Liszka" ]

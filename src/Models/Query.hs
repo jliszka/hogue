@@ -34,6 +34,9 @@ getDB dbName = do
   pipe <- Mongo.connect $ Mongo.host "127.0.0.1"
   return $ DB pipe dbName
 
+
+-- QUERY
+
 data Query m r = Query {
   clauses :: [Clause m],
   lim :: Word32,
@@ -64,23 +67,6 @@ data (Show a, Val a) => Cond a =
   | Exists Bool    -- $?
   deriving Show
 
-data (Show a, Val a) => Mod a =
-    Inc Int         -- $+
-  | Mul Int         -- $*
-  | CurrentDate     -- currentDate
-  | Set a           -- $:=
-  | SetOnInsert a   -- $!:=
-  | Unset           -- unset
-  | Push a          -- >>$
-  | PushAll [a]     -- *>>$
-  | PopFirst        -- popFirst
-  | PopLast         -- popLast
-  | Pull a          -- $<<
-  | PullAll [a]     -- $<<*
-  | AddToSet a      -- $>=
-  | AddAllToSet [a] -- $>=*
-
-
 data MongoType =
   TDouble | TString | TObject | TArray | TBinary | TObjectId | TBoolean
   | TDate | TNull | TRegex | TSymbol | TInt32 | TTimestamp | TInt64
@@ -110,14 +96,51 @@ data Sort =
   deriving Show
 
 
+-- MODIFY
+
+data Modify m = Modify {
+  query :: Query m m,
+  modifyClauses :: [ModifyClause m]
+}
+
+data ModifyClause m =
+  forall a . Val a =>
+  ModifyClause {
+    modifyClauseOp :: ModOp,
+    modifyClauseFieldName :: T.Text,
+    modifyClauseVal :: a
+  }
+
+data ModOp =
+    Inc         -- $+
+  | Mul         -- $*
+  | CurrentDate -- currentDate
+  | Set         -- $:=
+  | SetOnInsert -- $!:=
+  | Unset       -- unset
+  | Push        -- >>$
+  | PushAll     -- *>>$
+  | PopFirst    -- popFirst
+  | PopLast     -- popLast
+  | Pull        -- $<<
+  | PullAll     -- $<<*
+  | AddToSet    -- $>=
+  | AddAllToSet -- $>=*
+  deriving Eq
+
+
 -- FIELDS
+
+type Field m a = QField m a (Id a)
+type OptField m a = QField m a (Maybe a)
 
 data QField m a b where
   QField :: T.Text -> FieldValue a -> QField m a (Id a)
   OptQField :: T.Text -> Maybe (FieldValue a) -> QField m a (Maybe a)
 
-type Field m a = QField m a (Id a)
-type OptField m a = QField m a (Maybe a)
+data FieldValue a where
+  FieldValueVal :: Val a => a -> FieldValue a
+  FieldValueSchema :: Schema a => a -> FieldValue a
 
 getFieldName :: QField m a b -> T.Text
 getFieldName (QField name _) = name
@@ -127,13 +150,10 @@ getFieldValue :: QField m a b -> b
 getFieldValue (QField _ v) = Id $ getFieldValueValue v
 getFieldValue (OptQField _ v) = fmap getFieldValueValue v
 
-data FieldValue a where
-  FieldValueVal :: Val a => a -> FieldValue a
-  FieldValueSchema :: Schema a => a -> FieldValue a
-
 getFieldValueValue :: FieldValue a -> a
 getFieldValueValue (FieldValueVal a) = a
 getFieldValueValue (FieldValueSchema a) = a
+
 
 -- SELECT
 
@@ -252,6 +272,9 @@ class Schema m => Queryable m where
   find :: [Clause m] -> Query m m
   find cls = Query cls 0 [] SelectAll
 
+  modify :: [ModifyClause m] -> Query m m -> Modify m
+  modify cls q = Modify q cls
+
   -- QUERY OPERATORS
 
   mkClause :: Val c => (m -> QField m a b) -> Cond c -> Clause m
@@ -301,6 +324,41 @@ class Schema m => Queryable m where
 
   -- UPDATE OPERATORS
 
+  mkModClause :: Val c => ModOp -> (m -> QField m a b) -> c -> ModifyClause m
+  mkModClause op fld a = ModifyClause op (getFieldName $ fld schema) a
+
+  ($+) :: (Num a, Val a) => (m -> QField m a b) -> a -> ModifyClause m
+  fld $+ n = mkModClause Inc fld n
+
+  ($*) :: (Num a, Val a) => (m -> QField m Int b) -> a -> ModifyClause m
+  fld $* n = mkModClause Mul fld n
+
+  ($:=) :: Val a => (m -> QField m a b) -> a -> ModifyClause m
+  fld $:= n = mkModClause Set fld n
+
+  ($!:=) :: Val a => (m -> QField m a b) -> a -> ModifyClause m
+  fld $!:= n = mkModClause SetOnInsert fld n
+
+  unset :: (m -> QField m a b) -> ModifyClause m
+  unset fld = mkModClause Unset fld True
+
+  currentDate :: (m -> QField m a b) -> ModifyClause m
+  currentDate fld = mkModClause CurrentDate fld True
+
+  popFirst :: (m -> QField m a b) -> ModifyClause m
+  popFirst fld = mkModClause PopFirst fld True
+
+  popLast :: (m -> QField m a b) -> ModifyClause m
+  popLast fld = mkModClause PopLast fld True
+
+{- 
+  | Push        -- >>$
+  | PushAll     -- *>>$
+  | Pull        -- $<<
+  | PullAll     -- $<<*
+  | AddToSet    -- $>=
+  | AddAllToSet -- $>=*
+-}
 
   -- QUERY OPTIONS
 
@@ -325,6 +383,15 @@ class Schema m => Queryable m where
   count :: Queryable m => DB -> Query m m -> IO Int
   count db q = doQuery db q Mongo.count
 
+  updateOne :: DB -> Modify m -> IO ()
+  updateOne db (Modify q modClauses) = doQuery db q (\q -> Mongo.replace (Mongo.selection q) (toBson modClauses))
+
+  upsertOne :: DB -> Modify m -> IO ()
+  upsertOne db (Modify q modClauses) = doQuery db q (\q -> Mongo.upsert (Mongo.selection q) (toBson modClauses))
+
+  updateMulti :: DB -> Modify m -> IO ()
+  updateMulti db (Modify q modClauses) = doQuery db q (\q -> Mongo.modify (Mongo.selection q) (toBson modClauses))
+
   delete :: Queryable m => DB -> Query m m -> IO ()
   delete db q = doQuery db q (Mongo.delete . Mongo.selection)
 
@@ -337,7 +404,7 @@ class Schema m => Queryable m where
   applySelect (Select1Opt f) doc = doc Bson.!? (getFieldName f)
 
   fetchBson :: Queryable m => DB -> Query m r -> IO [Bson.Document]
-  fetchBson db q = doQuery db q (\a -> Mongo.find a >>= Mongo.rest)
+  fetchBson db q = doQuery db q (\q -> Mongo.find q >>= Mongo.rest)
 
   doQuery :: Queryable m => DB -> Query m r -> (Mongo.Query -> Mongo.Action IO a) -> IO a
   doQuery db q f = Mongo.access (dbPipe db) Mongo.master (dbName db) $ f (mkQuery q)
@@ -403,21 +470,52 @@ class ToBsonField a where
   toBsonField :: a -> Bson.Field
 
 instance ToBson [Clause m] where
-  toBson cls = mkClauses cls
+  toBson cls = map mkGroup groups
     where
-      mkClauses :: [Clause m] -> [Bson.Field]
-      mkClauses cls = map mkGroup groups
-        where
-          groups = L.groupBy (\cl1 cl2 -> clauseFieldName cl1 == clauseFieldName cl2) cls
-          isEqClause :: Clause m -> Bool
-          isEqClause (Clause _ (Eq a)) = True
-          isEqClause (Clause _ (Contains a)) = True
-          isEqClause _ = False
-          mkGroup :: [Clause m] -> Bson.Field
-          mkGroup cls = case L.find isEqClause cls of
-              Just (Clause fieldName (Eq a)) -> fieldName =: Bson.val a
-              Just (Clause fieldName (Contains a)) -> fieldName =: Bson.val a
-              Nothing -> (clauseFieldName $ head cls) =: map toBsonField cls
+      groups = L.groupBy (\cl1 cl2 -> clauseFieldName cl1 == clauseFieldName cl2) cls
+      isEqClause :: Clause m -> Bool
+      isEqClause (Clause _ (Eq a)) = True
+      isEqClause (Clause _ (Contains a)) = True
+      isEqClause _ = False
+      mkGroup :: [Clause m] -> Bson.Field
+      mkGroup cls = case L.find isEqClause cls of
+          Just (Clause fieldName (Eq a)) -> fieldName =: Bson.val a
+          Just (Clause fieldName (Contains a)) -> fieldName =: Bson.val a
+          Nothing -> (clauseFieldName $ head cls) =: map toBsonField cls
+
+instance ToBson [ModifyClause m] where
+  toBson cls = map mkGroup groups
+    where
+      groups = L.groupBy (\cl1 cl2 -> modifyClauseOp cl1 == modifyClauseOp cl2) cls
+      mkGroup :: [ModifyClause m] -> Bson.Field
+      mkGroup cls = mkGroupWithOp (modifyClauseOp $ head cls) cls
+
+      mkGroupWithOp :: ModOp -> [ModifyClause m] -> Bson.Field
+      mkGroupWithOp Inc cls = "$inc" =: map toFieldValue cls
+      mkGroupWithOp Mul cls = "$mul" =: map toFieldValue cls
+      mkGroupWithOp Set cls = "$set" =: map toFieldValue cls
+      mkGroupWithOp Push cls = "$push" =: map toFieldValue cls
+      mkGroupWithOp PushAll cls = "$push" =: map (toFieldValuesWith "$each") cls
+      mkGroupWithOp PopFirst cls = "$pop" =: map (toFieldWith (-1 :: Int)) cls
+      mkGroupWithOp PopLast cls = "$pop" =: map (toFieldWith (1 :: Int)) cls
+      mkGroupWithOp Pull cls = "$pull" =: map toFieldValue cls
+      mkGroupWithOp PullAll cls = "$pullAll" =: map toFieldValue cls
+      mkGroupWithOp AddToSet cls = "$addToSet" =: map toFieldValue cls
+      mkGroupWithOp AddAllToSet cls = "$addToSet" =: map (toFieldValuesWith "$each") cls
+      mkGroupWithOp Unset cls = "$unset" =: map (toFieldWith True) cls
+      mkGroupWithOp SetOnInsert cls = "$setOnInsert" =: map toFieldValue cls
+      mkGroupWithOp CurrentDate cls = "$currentDate" =: map (toFieldWith True) cls
+
+
+      toFieldValue :: ModifyClause m -> Bson.Field
+      toFieldValue (ModifyClause _ name val) = name =: val
+
+      toFieldWith :: Val a => a -> ModifyClause m -> Bson.Field
+      toFieldWith val (ModifyClause _ name _) = name =: val
+
+      toFieldValuesWith :: T.Text -> ModifyClause m -> Bson.Field
+      toFieldValuesWith t (ModifyClause _ name vals) = name =: [ t =: vals ]
+
 
 instance ToBson (Select m a) where
   toBson SelectAll = []
