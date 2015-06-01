@@ -322,13 +322,19 @@ class Schema m => Queryable m where
   fetchOne :: Queryable m => DB -> Query m r -> IO (Maybe r)
   fetchOne db q = fmap (fmap $ applySelect $ sel q) $ doQuery db q Mongo.findOne
 
+  count :: Queryable m => DB -> Query m m -> IO Int
+  count db q = doQuery db q Mongo.count
+
+  delete :: Queryable m => DB -> Query m m -> IO ()
+  delete db q = doQuery db q (Mongo.delete . Mongo.selection)
+
+  deleteOne :: Queryable m => DB -> Query m m -> IO ()
+  deleteOne db q = doQuery db q (Mongo.deleteOne . Mongo.selection)
+
   applySelect :: Schema m => Select m r -> Bson.Document -> r
   applySelect SelectAll doc = fromBson doc
   applySelect (Select1 f) doc = maybe undefined id $ doc Bson.!? (getFieldName f)
   applySelect (Select1Opt f) doc = doc Bson.!? (getFieldName f)
-
-  count :: Queryable m => DB -> Query m r -> IO Int
-  count db q = doQuery db q Mongo.count
 
   fetchBson :: Queryable m => DB -> Query m r -> IO [Bson.Document]
   fetchBson db q = doQuery db q (\a -> Mongo.find a >>= Mongo.rest)
