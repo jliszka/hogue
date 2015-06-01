@@ -317,16 +317,24 @@ class Schema m => Queryable m where
   -- QUERY EXECUTION
 
   fetch :: Queryable m => DB -> Query m r -> IO [r]
-  fetch db q = fmap (fmap $ applySelect $ sel q) docs
-    where
-      docs = fetchBson db q
-      applySelect :: Schema m => Select m r -> Bson.Document -> r
-      applySelect SelectAll doc = fromBson doc
-      applySelect (Select1 f) doc = maybe undefined id $ doc Bson.!? (getFieldName f)
-      applySelect (Select1Opt f) doc = doc Bson.!? (getFieldName f)
+  fetch db q = fmap (fmap $ applySelect $ sel q) $ fetchBson db q
+
+  fetchOne :: Queryable m => DB -> Query m r -> IO (Maybe r)
+  fetchOne db q = fmap (fmap $ applySelect $ sel q) $ doQuery db q Mongo.findOne
+
+  applySelect :: Schema m => Select m r -> Bson.Document -> r
+  applySelect SelectAll doc = fromBson doc
+  applySelect (Select1 f) doc = maybe undefined id $ doc Bson.!? (getFieldName f)
+  applySelect (Select1Opt f) doc = doc Bson.!? (getFieldName f)
+
+  count :: Queryable m => DB -> Query m r -> IO Int
+  count db q = doQuery db q Mongo.count
 
   fetchBson :: Queryable m => DB -> Query m r -> IO [Bson.Document]
-  fetchBson db q = Mongo.access (dbPipe db) Mongo.master (dbName db) $ Mongo.find (mkQuery q) >>= Mongo.rest
+  fetchBson db q = doQuery db q (\a -> Mongo.find a >>= Mongo.rest)
+
+  doQuery :: Queryable m => DB -> Query m r -> (Mongo.Query -> Mongo.Action IO a) -> IO a
+  doQuery db q f = Mongo.access (dbPipe db) Mongo.master (dbName db) $ f (mkQuery q)
     where
       mkQuery :: Queryable m => Query m r -> Mongo.Query
       mkQuery q = (Mongo.select cls coll) {
