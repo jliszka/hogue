@@ -16,6 +16,10 @@ import qualified Data.Bson as Bson
 
 -- !#$%&*+./<=>?@\^|-~:
 
+data Id a = Id a
+instance Functor Id where
+  fmap f (Id a) = Id $ f a
+
 ($.) :: a -> (a -> b) -> b
 ($.) a f = f a
 infixl 9 $.
@@ -43,7 +47,6 @@ data Clause m =
     clauseFieldName :: T.Text,
     clauseCond :: Cond a
   }
-
 
 data (Show a, Val a) => Cond a =
     Eq a       -- $=
@@ -106,10 +109,23 @@ data Sort =
   | Desc T.Text
   deriving Show
 
-data Select m r where
-  SelectAll :: (Generic m, GParse (Rep m)) => Select m m
-  Select1 :: Val b => Field m a (Id b) -> Select m b
-  Select1Opt :: Val b => Field m a (Maybe b) -> Select m (Maybe b)
+
+-- FIELDS
+
+data QField m a b where
+  QField :: T.Text -> FieldValue a -> QField m a (Id a)
+  OptQField :: T.Text -> Maybe (FieldValue a) -> QField m a (Maybe a)
+
+type Field m a = QField m a (Id a)
+type OptField m a = QField m a (Maybe a)
+
+getFieldName :: QField m a b -> T.Text
+getFieldName (QField name _) = name
+getFieldName (OptQField name _) = name
+
+getFieldValue :: QField m a b -> b
+getFieldValue (QField _ v) = Id $ getFieldValueValue v
+getFieldValue (OptQField _ v) = fmap getFieldValueValue v
 
 data FieldValue a where
   FieldValueVal :: Val a => a -> FieldValue a
@@ -119,18 +135,34 @@ getFieldValueValue :: FieldValue a -> a
 getFieldValueValue (FieldValueVal a) = a
 getFieldValueValue (FieldValueSchema a) = a
 
-data Id a = Id a
-instance Functor Id where
-  fmap f (Id a) = Id $ f a
+-- SELECT
 
-data Field m a b where
-  Field :: T.Text -> FieldValue a -> Field m a (Id a)
-  OptField :: T.Text -> Maybe (FieldValue a) -> Field m a (Maybe a)
+data Select m r where
+  SelectAll :: (Generic m, GParse (Rep m)) => Select m m
+  Select1 :: Val b => QField m a (Id b) -> Select m b
+  Select1Opt :: Val b => QField m a (Maybe b) -> Select m (Maybe b)
+
+class Selectable r where
+  type Sel r
+  mkSelect :: Val a => QField m a r -> Select m (Sel r)
+  select :: (Schema m, Val a) => (m -> QField m a r) -> Query m m -> Query m (Sel r)
+  select fld q = q { sel = mkSelect $ fld schema }
+
+instance Selectable (Id r) where
+  type Sel (Id r) = r
+  mkSelect f@(QField _ _) = Select1 f
+
+instance Selectable (Maybe r) where
+  type Sel (Maybe r) = Maybe r
+  mkSelect f@(OptQField _ _) = Select1Opt f
+
+
+-- SUBFIELDS
 
 class Subselectable b b' where
   type Comb b b'
-  mkField :: T.Text -> Field m a b -> Field a a' b' -> Field m a' (Comb b b')
-  (/.) :: (Schema m, Schema a) => (m -> Field m a b) -> (a -> Field a a' b') -> m -> Field m a' (Comb b b')
+  mkField :: T.Text -> QField m a b -> QField a a' b' -> QField m a' (Comb b b')
+  (/.) :: (Schema m, Schema a) => (m -> QField m a b) -> (a -> QField a a' b') -> m -> QField m a' (Comb b b')
   fld1 /. fld2 = \m -> mkField nn f1 f2
     where
       f1 = fld1 schema
@@ -139,45 +171,20 @@ class Subselectable b b' where
 
 instance Subselectable (Id a) (Id b) where
   type Comb (Id a) (Id b) = Id b
-  mkField nn (Field _ _) (Field _ b) = Field nn $ b
+  mkField nn (QField _ _) (QField _ b) = QField nn $ b
 
 instance Subselectable (Id a) (Maybe b) where
   type Comb (Id a) (Maybe b) = Maybe b
-  mkField nn (Field _ _) (OptField _ mb) = OptField nn $ mb
+  mkField nn (QField _ _) (OptQField _ mb) = OptQField nn $ mb
 
 instance Subselectable (Maybe a) (Id b) where
   type Comb (Maybe a) (Id b) = Maybe b
-  mkField nn (OptField _ ma) (Field _ b) = OptField nn $ fmap (\a -> b) ma
+  mkField nn (OptQField _ ma) (QField _ b) = OptQField nn $ fmap (\a -> b) ma
 
 instance Subselectable (Maybe a) (Maybe b) where
   type Comb (Maybe a) (Maybe b) = Maybe b
-  mkField nn (OptField _ _) (OptField _ mb) = OptField nn $ mb
+  mkField nn (OptQField _ _) (OptQField _ mb) = OptQField nn $ mb
 
-
-class Selectable r where
-  type Sel r
-  mkSelect :: Val a => Field m a r -> Select m (Sel r)
-  select :: (Schema m, Val a) => (m -> Field m a r) -> Query m m -> Query m (Sel r)
-  select fld q = q { sel = mkSelect $ fld schema }
-
-instance Selectable (Id r) where
-  type Sel (Id r) = r
-  mkSelect f@(Field _ _) = Select1 f
-
-instance Selectable (Maybe r) where
-  type Sel (Maybe r) = Maybe r
-  mkSelect f@(OptField _ _) = Select1Opt f
-
-type QField m a = Field m a (Id a)
-type OptQField m a = Field m a (Maybe a)
-
-getFieldName :: Field m a b -> T.Text
-getFieldName (Field name _) = name
-getFieldName (OptField name _) = name
-
-getFieldValue :: Field m a b -> b
-getFieldValue (Field _ v) = Id $ getFieldValueValue v
-getFieldValue (OptField _ v) = fmap getFieldValueValue v
 
 -- GENERIC PARSING
 
@@ -197,52 +204,19 @@ instance GLookup a => GParse (K1 i a) where
 class GLookup f where
   glookup :: Bson.Document -> f -> f
 
-instance GLookup (Field m a b) where
-  glookup doc (Field n (FieldValueVal _)) = Field n $ FieldValueVal $ maybe err id $ Bson.lookup n doc
+instance GLookup (QField m a b) where
+  glookup doc (QField n (FieldValueVal _)) = QField n $ FieldValueVal $ maybe err id $ Bson.lookup n doc
     where
       err = undefined -- TODO: error "friendly message"
-  glookup doc (Field n (FieldValueSchema _)) = Field n $ FieldValueSchema $ fromBson subdoc
+  glookup doc (QField n (FieldValueSchema _)) = QField n $ FieldValueSchema $ fromBson subdoc
     where
       Bson.Doc subdoc = Bson.valueAt n doc
-  glookup doc (OptField n (Just (FieldValueVal _))) = OptField n $ fmap FieldValueVal $ Bson.lookup n doc
-  glookup doc (OptField n (Just (FieldValueSchema _))) = OptField n $ fmap FieldValueSchema $ fmap fromBson subdoc
+  glookup doc (OptQField n (Just (FieldValueVal _))) = OptQField n $ fmap FieldValueVal $ Bson.lookup n doc
+  glookup doc (OptQField n (Just (FieldValueSchema _))) = OptQField n $ fmap FieldValueSchema $ fmap fromBson subdoc
     where
       subdoc = case Bson.lookup n doc of
         Just (Bson.Doc d) -> Just d
         Nothing -> Nothing
-
-{-
-withValue :: Field m a b -> c -> Field m c d
-withValue (Field name _) a = Field name a
-withValue (OptField name _) a = OptField name a
-withValue (EField name _) a = EField name a
-withValue (OptEField name _) a = OptEField name a
-
-data DummyModel a where
-  DummyModel :: Field (DummyModel a) a (Maybe a) -> DummyModel a
-
-data Id a = Id a
-
-class Collapse a b where
-  type C a b
-  collapse :: a -> b -> C a b
-
-instance Collapse (Maybe a) (Maybe b) where
-  type C (Maybe a) (Maybe b) = Maybe b
-  collapse a mb = mb
-
-instance Collapse (Id a) (Maybe b) where
-  type C (Id a) (Maybe b) = Maybe b
-  collapse a mb = mb
-
-instance Collapse (Maybe a) (Id b) where
-  type C (Maybe a) (Id b) = Maybe b
-  collapse ma (Id b) = Just b
-
-instance Collapse (Id a) (Id b) where
-  type C (Id a) (Id b) = b
-  collapse a (Id b) = b
--}
 
 
 -- SCHEMA
@@ -250,19 +224,19 @@ instance Collapse (Id a) (Id b) where
 class (Generic m, GParse (Rep m)) => Schema m where
   schema :: m
 
-  field :: Val a => T.Text -> Field m a (Id a)
-  field name = Field name (FieldValueVal undefined)
+  field :: Val a => T.Text -> QField m a (Id a)
+  field name = QField name (FieldValueVal undefined)
 
-  optfield :: Val a => T.Text -> Field m a (Maybe a)
-  optfield name = OptField name (Just (FieldValueVal undefined))
+  optfield :: Val a => T.Text -> QField m a (Maybe a)
+  optfield name = OptQField name (Just (FieldValueVal undefined))
 
-  efield :: Schema a => T.Text -> Field m a (Id a)
-  efield name = Field name (FieldValueSchema undefined)
+  efield :: Schema a => T.Text -> QField m a (Id a)
+  efield name = QField name (FieldValueSchema undefined)
 
-  optefield :: Schema a => T.Text -> Field m a (Maybe a)
-  optefield name = OptField name (Just (FieldValueSchema undefined))
+  optefield :: Schema a => T.Text -> QField m a (Maybe a)
+  optefield name = OptQField name (Just (FieldValueSchema undefined))
 
-  (~.) :: Show a => m -> (m -> Field m a b) -> b
+  (~.) :: Show a => m -> (m -> QField m a b) -> b
   m ~. fld = getFieldValue $ fld m
 
   fromBson :: Bson.Document -> m
@@ -280,80 +254,63 @@ class Schema m => Queryable m where
 
   -- QUERY OPERATORS
 
-  mkClause :: Val c => (m -> Field m a b) -> Cond c -> Clause m
+  mkClause :: Val c => (m -> QField m a b) -> Cond c -> Clause m
   mkClause fld cond = Clause (getFieldName $ fld schema) cond
 
-  (~>) :: (Show a, Val a) => (m -> Field m a b) -> Cond a -> Clause m
+  (~>) :: (Show a, Val a) => (m -> QField m a b) -> Cond a -> Clause m
   fld ~> cond = mkClause fld cond
 
-  ($=) :: (Show a, Val a) => (m -> Field m a b) -> a -> Clause m
+  ($=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   fld $= a = mkClause fld $ Eq a
 
-  ($/=) :: (Show a, Val a) => (m -> Field m a b) -> a -> Clause m
+  ($/=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   fld $/= a = mkClause fld $ Neq a
 
-  ($>) :: (Show a, Val a) => (m -> Field m a b) -> a -> Clause m
+  ($>) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   fld $> a = mkClause fld $ Gt a
 
-  ($<) :: (Show a, Val a) => (m -> Field m a b) -> a -> Clause m
+  ($<) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   fld $< a = mkClause fld $ Lt a
 
-  ($>=) :: (Show a, Val a) => (m -> Field m a b) -> a -> Clause m
+  ($>=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   fld $>= a = mkClause fld $ GtEq a
 
-  ($<=) :: (Show a, Val a) => (m -> Field m a b) -> a -> Clause m
+  ($<=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   fld $<= a = mkClause fld $ LtEq a
 
-  ($=*) :: (Show a, Val a) => (m -> Field m a b) -> [a] -> Clause m
+  ($=*) :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
   fld $=* a = mkClause fld $ In a
 
-  ($/=*) :: (Show a, Val a) => (m -> Field m a b) -> [a] -> Clause m
+  ($/=*) :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
   fld $/=* a = mkClause fld $ NotIn a
 
-  ($*=) :: (Show a, Val a) => (m -> Field m [a] b) -> a -> Clause m
+  ($*=) :: (Show a, Val a) => (m -> QField m [a] b) -> a -> Clause m
   fld $*= a = mkClause fld $ Contains a
 
-  ($*=*) :: (Show a, Val a) => (m -> Field m [a] b) -> [a] -> Clause m
+  ($*=*) :: (Show a, Val a) => (m -> QField m [a] b) -> [a] -> Clause m
   fld $*=* a = mkClause fld $ All a
 
-  ($?) :: (Show a, Val a) => (m -> Field m a b) -> Bool -> Clause m
+  ($?) :: (Show a, Val a) => (m -> QField m a b) -> Bool -> Clause m
   fld $? b = mkClause fld $ (Exists b :: Cond Bool)
 
-  ($#) :: (Show a, Val a) => (m -> Field m a b) -> Int -> Clause m
+  ($#) :: (Show a, Val a) => (m -> QField m a b) -> Int -> Clause m
   fld $# n = mkClause fld $ (Size n :: Cond Int)
 
-  ($:) :: (Show a, Val a) => (m -> Field m a b) -> MongoType -> Clause m
+  ($:) :: (Show a, Val a) => (m -> QField m a b) -> MongoType -> Clause m
   fld $: t = mkClause fld $ (Type t :: Cond MongoType)
 
   -- UPDATE OPERATORS
 
-
-  -- SUBFIELDS
-
-{-
-  (/.) :: (Schema m, Schema e, Val a) => (m -> Field m e e') -> (e -> Field e a a') -> m -> Field m a a'
-  outer /. inner =
-    let
-      f1 = outer schema
-      f2 = inner schema
-      n1 = getFieldName f1
-      n2 = getFieldName f2
-      nn = T.concat [ n1, ".", n2 ]
-    in \m -> case (f1, f2) of
-      (Field _ _, Field _ v) -> Field nn v
-      (OptField _ _, Field _ v) -> OptField nn (Just v)
-      (_, OptField _ v) -> OptField nn v
--}
 
   -- QUERY OPTIONS
 
   limit :: Word32 -> Query m r -> Query m r
   limit n q = q { lim = n }
 
-  asc :: Val a => (m -> Field m a b) -> Query m r -> Query m r
+  asc :: Val a => (m -> QField m a b) -> Query m r -> Query m r
   asc fld q = q { srt = Asc (getFieldName $ fld schema) : srt q }
 
-  desc :: Val a => (m -> Field m a b) -> Query m r -> Query m r
+  desc :: Val a => (m -> QField m a b) -> Query m r -> Query m r
   desc fld q = q { srt = Desc (getFieldName $ fld schema) : srt q }
 
 
@@ -389,9 +346,9 @@ class Schema m => Queryable m where
 
 -- SHOW INSTANCES
 
-instance Show a => Show (Field m a b) where
-  show (Field name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
-  show (OptField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
+instance Show a => Show (QField m a b) where
+  show (QField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
+  show (OptQField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
 
 instance Show a => Show (FieldValue a) where
   show (FieldValueVal a) = show a

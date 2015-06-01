@@ -11,13 +11,13 @@ import qualified Database.MongoDB as Mongo
 import Data.Bson (ObjectId, (=:), Value(Doc), Document)
 
 data User = User {
-  _id :: QField User ObjectId,
-  first_name :: QField User String,
-  last_name :: QField User String,
-  updated_at :: QField User UTCTime,
-  roles :: QField User [String],
-  loc :: OptQField User Location,
-  primary_day :: OptQField User Int
+  _id :: Field User ObjectId,
+  first_name :: Field User String,
+  last_name :: Field User String,
+  updated_at :: Field User UTCTime,
+  roles :: Field User [String],
+  loc :: OptField User Location,
+  primary_day :: OptField User Int
 } deriving (Show, Generic)
 
 instance Schema User where
@@ -35,8 +35,8 @@ instance Queryable User where
   collection _ = "users"
 
 data Location = Location {
-  city :: QField Location String,
-  postal_code :: QField Location String
+  city :: Field Location String,
+  postal_code :: Field Location String
 } deriving (Show, Generic)
 
 instance Schema Location where
