@@ -243,20 +243,20 @@ instance GLookup (QField m a b) where
 
 -- SCHEMA
 
-class (ToJSON m, Generic m, GParse (Rep m)) => Schema m where
-  schema :: m
+class MkField f a b where
+  field :: Val a => T.Text -> f a b
+  efield :: Schema a => T.Text -> f a b
 
-  field :: Val a => T.Text -> QField m a (Id a)
+instance MkField (QField m) a (Id a) where
   field name = QField name (FieldValueVal undefined)
-
-  optfield :: Val a => T.Text -> QField m a (Maybe a)
-  optfield name = OptQField name (Just (FieldValueVal undefined))
-
-  efield :: Schema a => T.Text -> QField m a (Id a)
   efield name = QField name (FieldValueSchema undefined)
 
-  optefield :: Schema a => T.Text -> QField m a (Maybe a)
-  optefield name = OptQField name (Just (FieldValueSchema undefined))
+instance MkField (QField m) a (Maybe a) where
+  field name = OptQField name (Just (FieldValueVal undefined))
+  efield name = OptQField name (Just (FieldValueSchema undefined))
+
+class (ToJSON m, Generic m, GParse (Rep m)) => Schema m where
+  schema :: m
 
   (~.) :: Show a => m -> (m -> QField m a b) -> b
   m ~. fld = getFieldValue $ fld m
