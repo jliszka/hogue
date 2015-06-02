@@ -30,13 +30,8 @@ main =
 
     subcomponent "users" $ usersRoutes db
 
-requireUser :: DB -> (User -> ActionT IO ()) -> String -> ActionT IO ()
-requireUser db action userId = do
-  let oid = read userId
-  maybeUser <- liftIO $ find [ User._id $= oid ] $. fetchOne db
-  case maybeUser of
-    Nothing -> setStatus status404
-    Just user -> action user
+
+-- USERS ROUTES
 
 usersRoutes db = do
   get root $ do
@@ -45,3 +40,14 @@ usersRoutes db = do
 
   get var $ requireUser db $ \user -> do
     json user
+
+
+-- HELPERS
+
+requireUser :: DB -> (User -> ActionT IO ()) -> String -> ActionT IO ()
+requireUser db action userId = do
+  let oid = read userId
+  maybeUser <- liftIO $ find [ User._id $= oid ] $. fetchOne db
+  case maybeUser of
+    Nothing -> setStatus status404
+    Just user -> action user
