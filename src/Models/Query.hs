@@ -286,10 +286,10 @@ class Schema m => Queryable m where
   (~>) :: (Show a, Val a) => (m -> QField m a b) -> Cond a -> Clause m
   (~>) = mkClause
 
-  eq :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
-  eq fld a = mkClause fld $ Eq a
+  eqs :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
+  eqs fld a = mkClause fld $ Eq a
   ($=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
-  ($=) = eq
+  ($=) = eqs
 
   neq :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   neq fld a = mkClause fld $ Neq a
@@ -316,15 +316,15 @@ class Schema m => Queryable m where
   ($<=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   ($<=) = lte
 
-  has :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
-  has fld a = mkClause fld $ In a
+  isIn :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
+  isIn fld a = mkClause fld $ In a
   ($=*) :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
-  ($=*) = has
+  ($=*) = isIn
 
-  nin :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
-  nin fld a = mkClause fld $ NotIn a
+  notIn :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
+  notIn fld a = mkClause fld $ NotIn a
   ($/=*) :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
-  ($/=*) = nin
+  ($/=*) = notIn
 
   contains :: (Show a, Val a) => (m -> QField m [a] b) -> a -> Clause m
   contains fld a = mkClause fld $ Contains a
@@ -346,10 +346,10 @@ class Schema m => Queryable m where
   ($#) :: (Show a, Val a) => (m -> QField m a b) -> Int -> Clause m
   ($#) = size
 
-  typ :: (Show a, Val a) => (m -> QField m a b) -> MongoType -> Clause m
-  typ fld t = mkClause fld $ (Type t :: Cond MongoType)
+  hasType :: (Show a, Val a) => (m -> QField m a b) -> MongoType -> Clause m
+  hasType fld t = mkClause fld $ (Type t :: Cond MongoType)
   ($:) :: (Show a, Val a) => (m -> QField m a b) -> MongoType -> Clause m
-  ($:) = typ
+  ($:) = hasType
 
 
   -- UPDATE OPERATORS
