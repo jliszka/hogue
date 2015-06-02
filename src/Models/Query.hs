@@ -432,13 +432,13 @@ class Schema m => Queryable m where
   count db q = doQuery db q Mongo.count
 
   updateOne :: DB -> Modify m -> IO ()
-  updateOne db (Modify q modClauses) = doQuery db q (\q -> Mongo.replace (Mongo.selection q) (toBson modClauses))
+  updateOne db mod = doModify db mod Mongo.replace
 
   upsertOne :: DB -> Modify m -> IO ()
-  upsertOne db (Modify q modClauses) = doQuery db q (\q -> Mongo.upsert (Mongo.selection q) (toBson modClauses))
+  upsertOne db mod = doModify db mod Mongo.upsert
 
   updateMulti :: DB -> Modify m -> IO ()
-  updateMulti db (Modify q modClauses) = doQuery db q (\q -> Mongo.modify (Mongo.selection q) (toBson modClauses))
+  updateMulti db mod = doModify db mod Mongo.modify
 
   delete :: Queryable m => DB -> Query m m -> IO ()
   delete db q = doQuery db q (Mongo.delete . Mongo.selection)
@@ -451,11 +451,18 @@ class Schema m => Queryable m where
   applySelect (Select1 f) doc = maybe undefined id $ doc Bson.!? (getFieldName f)
   applySelect (Select1Opt f) doc = doc Bson.!? (getFieldName f)
 
+  doModify :: DB -> Modify m -> (Mongo.Selection -> Bson.Document -> Mongo.Action IO ()) -> IO ()
+  doModify db (Modify q modClauses) f = exec db $ f selection (toBson modClauses)
+    where
+      selection = Mongo.select cls coll
+      cls = toBson $ clauses q
+      coll = collection q
+
   fetchBson :: Queryable m => DB -> Query m r -> IO [Bson.Document]
   fetchBson db q = doQuery db q (\q -> Mongo.find q >>= Mongo.rest)
 
   doQuery :: Queryable m => DB -> Query m r -> (Mongo.Query -> Mongo.Action IO a) -> IO a
-  doQuery db q f = Mongo.access (dbPipe db) Mongo.master (dbName db) $ f (mkQuery q)
+  doQuery db q f = exec db $ f (mkQuery q)
     where
       mkQuery :: Queryable m => Query m r -> Mongo.Query
       mkQuery q = (Mongo.select cls coll) {
@@ -465,11 +472,13 @@ class Schema m => Queryable m where
       }
         where
           coll = collection q
-          cls = clauses q $. toBson
-          sort = srt q $. reverse $. toBson
-          project = sel q $. toBson
+          cls = toBson $ clauses q
+          sort = toBson $ reverse $ srt q
+          project = toBson $ sel q
           limit = lim q
 
+exec :: DB -> Mongo.Action IO a -> IO a
+exec db act = Mongo.access (dbPipe db) Mongo.master (dbName db) $ act
 
 -- SHOW INSTANCES
 
