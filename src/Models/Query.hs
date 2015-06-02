@@ -277,69 +277,105 @@ class Schema m => Queryable m where
   modify :: [ModifyClause m] -> Query m m -> Modify m
   modify cls q = Modify q cls
 
+
   -- QUERY OPERATORS
 
   mkClause :: Val c => (m -> QField m a b) -> Cond c -> Clause m
   mkClause fld cond = Clause (getFieldName $ fld schema) cond
 
   (~>) :: (Show a, Val a) => (m -> QField m a b) -> Cond a -> Clause m
-  fld ~> cond = mkClause fld cond
+  (~>) = mkClause
 
+  eq :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
+  eq fld a = mkClause fld $ Eq a
   ($=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
-  fld $= a = mkClause fld $ Eq a
+  ($=) = eq
 
+  neq :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
+  neq fld a = mkClause fld $ Neq a
   ($/=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
-  fld $/= a = mkClause fld $ Neq a
+  ($/=) = neq
 
+  gt :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
+  gt fld a = mkClause fld $ Gt a
   ($>) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
-  fld $> a = mkClause fld $ Gt a
+  ($>) = gt
 
+  lt :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
+  lt fld a = mkClause fld $ Lt a
   ($<) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
-  fld $< a = mkClause fld $ Lt a
+  ($<) = lt
 
+  gte :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
+  gte fld a = mkClause fld $ GtEq a
   ($>=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
-  fld $>= a = mkClause fld $ GtEq a
+  ($>=) = gte
 
+  lte :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
+  lte fld a = mkClause fld $ LtEq a
   ($<=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
-  fld $<= a = mkClause fld $ LtEq a
+  ($<=) = lte
 
+  has :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
+  has fld a = mkClause fld $ In a
   ($=*) :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
-  fld $=* a = mkClause fld $ In a
+  ($=*) = has
 
+  nin :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
+  nin fld a = mkClause fld $ NotIn a
   ($/=*) :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
-  fld $/=* a = mkClause fld $ NotIn a
+  ($/=*) = nin
 
+  contains :: (Show a, Val a) => (m -> QField m [a] b) -> a -> Clause m
+  contains fld a = mkClause fld $ Contains a
   ($*=) :: (Show a, Val a) => (m -> QField m [a] b) -> a -> Clause m
-  fld $*= a = mkClause fld $ Contains a
+  ($*=) = contains
 
+  containsAll :: (Show a, Val a) => (m -> QField m [a] b) -> [a] -> Clause m
+  containsAll fld a = mkClause fld $ All a
   ($*=*) :: (Show a, Val a) => (m -> QField m [a] b) -> [a] -> Clause m
-  fld $*=* a = mkClause fld $ All a
+  ($*=*) = containsAll
 
+  exists :: (Show a, Val a) => (m -> QField m a b) -> Bool -> Clause m
+  exists fld b = mkClause fld $ (Exists b :: Cond Bool)
   ($?) :: (Show a, Val a) => (m -> QField m a b) -> Bool -> Clause m
-  fld $? b = mkClause fld $ (Exists b :: Cond Bool)
+  ($?) = exists
 
+  size :: (Show a, Val a) => (m -> QField m a b) -> Int -> Clause m
+  size fld n = mkClause fld $ (Size n :: Cond Int)
   ($#) :: (Show a, Val a) => (m -> QField m a b) -> Int -> Clause m
-  fld $# n = mkClause fld $ (Size n :: Cond Int)
+  ($#) = size
 
+  typ :: (Show a, Val a) => (m -> QField m a b) -> MongoType -> Clause m
+  typ fld t = mkClause fld $ (Type t :: Cond MongoType)
   ($:) :: (Show a, Val a) => (m -> QField m a b) -> MongoType -> Clause m
-  fld $: t = mkClause fld $ (Type t :: Cond MongoType)
+  ($:) = typ
+
 
   -- UPDATE OPERATORS
 
   mkModClause :: Val c => ModOp -> (m -> QField m a b) -> c -> ModifyClause m
   mkModClause op fld a = ModifyClause op (getFieldName $ fld schema) a
 
+  inc :: (Num a, Val a) => (m -> QField m a b) -> a -> ModifyClause m
+  inc fld n = mkModClause Inc fld n
   ($+) :: (Num a, Val a) => (m -> QField m a b) -> a -> ModifyClause m
-  fld $+ n = mkModClause Inc fld n
+  ($+) = inc
 
-  ($*) :: (Num a, Val a) => (m -> QField m Int b) -> a -> ModifyClause m
-  fld $* n = mkModClause Mul fld n
+  mul :: (Num a, Val a) => (m -> QField m a b) -> a -> ModifyClause m
+  mul fld n = mkModClause Mul fld n
+  ($*) :: (Num a, Val a) => (m -> QField m a b) -> a -> ModifyClause m
+  ($*) = mul
 
+  setTo :: Val a => (m -> QField m a b) -> a -> ModifyClause m
+  setTo fld a = mkModClause Set fld a
   ($:=) :: Val a => (m -> QField m a b) -> a -> ModifyClause m
-  fld $:= n = mkModClause Set fld n
+  ($:=) = setTo
 
+  setOnInsert :: Val a => (m -> QField m a b) -> a -> ModifyClause m
+  setOnInsert fld a = mkModClause SetOnInsert fld a
   ($!:=) :: Val a => (m -> QField m a b) -> a -> ModifyClause m
-  fld $!:= n = mkModClause SetOnInsert fld n
+  ($!:=) = setOnInsert
 
   unset :: (m -> QField m a b) -> ModifyClause m
   unset fld = mkModClause Unset fld True
@@ -353,14 +389,24 @@ class Schema m => Queryable m where
   popLast :: (m -> QField m a b) -> ModifyClause m
   popLast fld = mkModClause PopLast fld True
 
-{- 
-  | Push        -- >>$
-  | PushAll     -- *>>$
-  | Pull        -- $<<
-  | PullAll     -- $<<*
-  | AddToSet    -- $>=
-  | AddAllToSet -- $>=*
--}
+  push :: Val a => (m -> QField m [a] b) -> a -> ModifyClause m
+  push fld a = mkModClause Push fld a
+
+  pushAll :: Val a => (m -> QField m [a] b) -> [a] -> ModifyClause m
+  pushAll fld a = mkModClause PushAll fld [a]
+
+  pull :: Val a => (m -> QField m [a] b) -> a -> ModifyClause m
+  pull fld a = mkModClause Pull fld a
+
+  pullAll :: Val a => (m -> QField m [a] b) -> [a] -> ModifyClause m
+  pullAll fld a = mkModClause PullAll fld [a]
+
+  addToSet :: Val a => (m -> QField m [a] b) -> a -> ModifyClause m
+  addToSet fld a = mkModClause AddToSet fld a
+
+  addAllToSet :: Val a => (m -> QField m [a] b) -> [a] -> ModifyClause m
+  addAllToSet fld a = mkModClause AddToSet fld [a]
+
 
   -- QUERY OPTIONS
 
@@ -425,13 +471,11 @@ class Schema m => Queryable m where
           limit = lim q
 
 
-
-
 -- SHOW INSTANCES
 
 instance Show a => Show (QField m a b) where
-  show (QField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
-  show (OptQField name val) = T.unpack $ T.concat [ name, "=", T.pack $ show val ]
+  show (QField name val) = show val
+  show (OptQField name val) = show val
 
 instance Show a => Show (FieldValue a) where
   show (FieldValueVal a) = show a
