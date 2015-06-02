@@ -8,6 +8,8 @@ module Models.Query where
 
 import GHC.Generics
 import Data.Word (Word32)
+import Data.Aeson (ToJSON, toJSON)
+import qualified Data.Aeson as Aeson
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Database.MongoDB as Mongo
@@ -241,7 +243,7 @@ instance GLookup (QField m a b) where
 
 -- SCHEMA
 
-class (Generic m, GParse (Rep m)) => Schema m where
+class (ToJSON m, Generic m, GParse (Rep m)) => Schema m where
   schema :: m
 
   field :: Val a => T.Text -> QField m a (Id a)
@@ -547,4 +549,18 @@ instance Val a => ToBsonField (Cond a) where
 instance ToBsonField Sort where
   toBsonField (Asc fieldName) = fieldName =: (1 :: Int)
   toBsonField (Desc fieldName) = fieldName =: (-1 :: Int)
+
+
+-- JSON SERIALIZATION
+
+instance (ToJSON a) => ToJSON (QField m a b) where
+  toJSON (QField m a) = toJSON a
+  toJSON (OptQField m a) = toJSON a
+
+instance (ToJSON a) => ToJSON (FieldValue a) where
+  toJSON (FieldValueVal a) = toJSON a
+  toJSON (FieldValueSchema a) = toJSON a
+
+instance ToJSON Bson.ObjectId where
+  toJSON oid = Aeson.String $ T.pack $ show oid
 

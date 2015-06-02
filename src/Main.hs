@@ -14,6 +14,7 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import Models.User as User
 import Models.Request as Request
 import Models.Query
+import Network.HTTP.Types.Status
 
 (//) = (<//>)
 
@@ -21,24 +22,26 @@ import Models.Query
 main :: IO ()
 main =
   runSpock 8080 $ spockT id $ do
-  middleware logStdoutDev
+    db <- liftIO $ getDB "v2-staging"
+    middleware logStdoutDev
 
-  get root $
-    text "Hello!"
+    get root $
+      text "Hello!"
 
-  subcomponent "users" $ usersRoutes
-  subcomponent "requests" $ requestsRoutes
+    subcomponent "users" $ usersRoutes db
 
+requireUser :: DB -> (User -> ActionT IO ()) -> String -> ActionT IO ()
+requireUser db action userId = do
+  let oid = read userId
+  maybeUser <- liftIO $ find [ User._id $= oid ] $. fetchOne db
+  case maybeUser of
+    Nothing -> setStatus status404
+    Just user -> action user
 
-usersRoutes = do
-  get (var // "requests") $ \userId -> do
-    now <- liftIO getCurrentTime
-    -- let u = User { _id = userId, name = "Alfred", created_at = now }
-    -- let q = find [ Request._id ~> (Gt 3), Request.user_id ~> (Eq "hi") ] -- { limit = Just 10 }
-    -- let r = Request { _id = "1", user_id = User._id u, created_at = now }
-    -- let r2 = r { Request._id = requestId }
-    text $ userId
+usersRoutes db = do
+  get root $ do
+    users <- liftIO $ find [ User.roles $*= "customer" ] $. limit 10 $. fetch db
+    json users
 
-requestsRoutes = do
-  get (var) $ \name ->
-    text ("Hello " <> name <> "!")
+  get var $ requireUser db $ \user -> do
+    json user
