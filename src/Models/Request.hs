@@ -36,6 +36,5 @@ go :: MaybeT IO [Request]
 go = do
   db <- lift $ getDB "v2-staging"
   let oid = read "5543eae3cfaa950f00dffbd6"
-  user <- MaybeT $ find [ User._id `eqs` oid ] $. fetchOne db
-  let uid = user ~. User._id
+  uid <- MaybeT $ find [ User._id `eqs` oid ] $. select User._id $. fetchOne db
   lift $ find [ customer_id `eqs` uid ] $. fetch db

@@ -28,26 +28,31 @@ main =
     get root $
       text "Hello!"
 
-    subcomponent "users" $ usersRoutes db
+    subcomponent "customers" $ customersRoutes db
 
 
 -- USERS ROUTES
 
-usersRoutes db = do
+customersRoutes db = do
   get root $ do
-    users <- liftIO $ find [ User.roles $*= "customer" ] $. limit 10 $. fetch db
-    json users
+    customers <- liftIO $ find [ User.roles `contains` "customer" ] $. limit 10 $. fetch db
+    json customers
 
-  get var $ requireUser db $ \user -> do
-    json user
+  get var $ requireCustomer db $ \customer -> do
+    json customer
+
+  get (var // "requests") $ requireCustomer db $ \customer -> do
+    let cid = customer ~. User._id
+    requests <- liftIO $ find [ Request.customer_id `eqs` cid ] $.fetch db
+    json requests
 
 
 -- HELPERS
 
-requireUser :: DB -> (User -> ActionT IO ()) -> String -> ActionT IO ()
-requireUser db action userId = do
-  let oid = read userId
-  maybeUser <- liftIO $ find [ User._id $= oid ] $. fetchOne db
-  case maybeUser of
+requireCustomer :: DB -> (User -> ActionT IO ()) -> String -> ActionT IO ()
+requireCustomer db action customerId = do
+  let oid = read customerId
+  maybeCustomer <- liftIO $ find [ User._id `eqs` oid, User.roles `contains` "customer" ] $. fetchOne db
+  case maybeCustomer of
     Nothing -> setStatus status404
-    Just user -> action user
+    Just customer -> action customer
