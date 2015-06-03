@@ -12,9 +12,11 @@ import Models.Query
 import qualified Models.User as User
 import Data.Bson (ObjectId)
 
+type RequestId = NewId Request
+
 data Request = Request {
-  _id         :: Field Request ObjectId,
-  customer_id :: Field Request ObjectId,
+  _id         :: Field Request RequestId,
+  customer_id :: Field Request User.UserId,
   desc        :: Field Request String
 } deriving (Show, Generic, ToJSON)
 
@@ -27,6 +29,7 @@ instance Schema Request where
 
 instance Queryable Request where
   collection _ = "requests"
+  primaryKey _ = _id
 
 
 -- q :: Query Request Request

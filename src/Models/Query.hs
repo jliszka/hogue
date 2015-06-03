@@ -15,6 +15,7 @@ import qualified Data.Text as T
 import qualified Database.MongoDB as Mongo
 import Database.MongoDB ((=:), Val, Value(Int32))
 import qualified Data.Bson as Bson
+import Data.Typeable.Internal (Typeable)
 
 -- !#$%&*+./<=>?@\^|-~:
 
@@ -277,6 +278,7 @@ class (ToJSON m, Generic m, GParse (Rep m)) => Schema m where
 
 class Schema m => Queryable m where
   collection :: Query m r -> T.Text
+  primaryKey :: Query m r -> m -> Field m (NewId m)
 
   find :: [Clause m] -> Query m m
   find cls = Query cls 0 [] SelectAll
@@ -624,3 +626,26 @@ instance (ToJSON a) => ToJSON (FieldValue a) where
 instance ToJSON Bson.ObjectId where
   toJSON oid = Aeson.String $ T.pack $ show oid
 
+
+-- TYPESAFE IDS
+
+newtype Typeable m => NewId m = NewId { getId :: Bson.ObjectId }
+  deriving (Eq, Typeable)
+
+instance ToJSON (NewId m) where
+  toJSON (NewId id) = toJSON id
+
+instance Read (NewId m) where
+  readsPrec n s = fmap f i
+    where
+      f :: (Bson.ObjectId, String) -> (NewId m, String)
+      f (a, s) = (NewId a, s)
+      i :: [(Bson.ObjectId, String)]
+      i = readsPrec n s
+
+instance Show (NewId m) where
+  show (NewId id) = show id
+
+instance Typeable m => Val (NewId m) where
+  val (NewId id) = Bson.val id
+  cast' v = fmap NewId $ Bson.cast' v

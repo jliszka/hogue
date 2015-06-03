@@ -10,8 +10,10 @@ import Models.Query
 import qualified Database.MongoDB as Mongo
 import Data.Bson (ObjectId, (=:), Value(Doc), Document)
 
+type UserId = NewId User
+
 data User = User {
-  _id         :: Field User ObjectId,
+  _id         :: Field User UserId,
   first_name  :: Field User String,
   last_name   :: Field User String,
   updated_at  :: Field User UTCTime,
@@ -33,6 +35,7 @@ instance Schema User where
 
 instance Queryable User where
   collection _ = "users"
+  primaryKey _ = _id
 
 data Location = Location {
   city        :: Field Location String,
