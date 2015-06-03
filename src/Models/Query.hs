@@ -131,6 +131,14 @@ data ModOp =
   deriving Eq
 
 
+-- SELECT
+
+data Select m r where
+  SelectAll :: (Generic m, GParse (Rep m)) => Select m m
+  Select1 :: Val b => QField m a (Id b) -> Select m b
+  Select1Opt :: Val b => QField m a (Maybe b) -> Select m (Maybe b)
+
+
 -- FIELDS
 
 type Field m a = QField m a (Id a)
@@ -148,34 +156,36 @@ getFieldName :: QField m a b -> T.Text
 getFieldName (QField name _) = name
 getFieldName (OptQField name _) = name
 
-getFieldValue :: QField m a b -> b
-getFieldValue (QField _ v) = Id $ getFieldValueValue v
-getFieldValue (OptQField _ v) = fmap getFieldValueValue v
-
 getFieldValueValue :: FieldValue a -> a
 getFieldValueValue (FieldValueVal a) = a
 getFieldValueValue (FieldValueSchema a) = a
 
 
--- SELECT
+-- FLATTENABLE (FIELD HELPER)
 
-data Select m r where
-  SelectAll :: (Generic m, GParse (Rep m)) => Select m m
-  Select1 :: Val b => QField m a (Id b) -> Select m b
-  Select1Opt :: Val b => QField m a (Maybe b) -> Select m (Maybe b)
+class Flattenable r where
+  type Flat r
+  flatten :: r -> Flat r
+  mkSelect :: Val a => QField m a r -> Select m (Flat r)
 
-class Selectable r where
-  type Sel r
-  mkSelect :: Val a => QField m a r -> Select m (Sel r)
-  select :: (Schema m, Val a) => (m -> QField m a r) -> Query m m -> Query m (Sel r)
+  select :: (Schema m, Val a) => (m -> QField m a r) -> Query m m -> Query m (Flat r)
   select fld q = q { sel = mkSelect $ fld schema }
 
-instance Selectable (Id r) where
-  type Sel (Id r) = r
+  getFieldValue :: QField m a r -> Flat r
+  getFieldValue (QField _ v) = flatten $ Id $ getFieldValueValue v
+  getFieldValue (OptQField _ v) = flatten $ fmap getFieldValueValue v
+
+  (~.) :: m -> (m -> QField m a r) -> Flat r
+  m ~. fld = getFieldValue $ fld m
+
+instance Flattenable (Id a) where
+  type Flat (Id a) = a
+  flatten (Id a) = a
   mkSelect f@(QField _ _) = Select1 f
 
-instance Selectable (Maybe r) where
-  type Sel (Maybe r) = Maybe r
+instance Flattenable (Maybe a) where
+  type Flat (Maybe a) = Maybe a
+  flatten ma = ma
   mkSelect f@(OptQField _ _) = Select1Opt f
 
 
@@ -257,9 +267,6 @@ instance MkField (QField m) a (Maybe a) where
 
 class (ToJSON m, Generic m, GParse (Rep m)) => Schema m where
   schema :: m
-
-  (~.) :: Show a => m -> (m -> QField m a b) -> b
-  m ~. fld = getFieldValue $ fld m
 
   fromBson :: Bson.Document -> m
   fromBson doc = fromBson' doc schema
