@@ -413,11 +413,11 @@ class Schema m => Queryable m where
   limit :: Word32 -> Query m r -> Query m r
   limit n q = q { lim = n }
 
-  asc :: Val a => (m -> QField m a b) -> Query m r -> Query m r
-  asc fld q = q { srt = Asc (getFieldName $ fld schema) : srt q }
+  orderAsc :: Val a => (m -> QField m a b) -> Query m r -> Query m r
+  orderAsc fld q = q { srt = Asc (getFieldName $ fld schema) : srt q }
 
-  desc :: Val a => (m -> QField m a b) -> Query m r -> Query m r
-  desc fld q = q { srt = Desc (getFieldName $ fld schema) : srt q }
+  orderDesc :: Val a => (m -> QField m a b) -> Query m r -> Query m r
+  orderDesc fld q = q { srt = Desc (getFieldName $ fld schema) : srt q }
 
 
   -- QUERY EXECUTION

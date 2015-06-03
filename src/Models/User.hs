@@ -51,12 +51,12 @@ run q f = do
   f db q
 
 q1 = find [ first_name `eqs` "Jason" ] $. limit 10
-q2 = find [ first_name `eqs` "Jason", roles $*= "customer" ] $. select last_name $. limit 5 $. asc last_name
-q2' = find [ first_name `eqs` "Jason", roles $*= "customer" ] $. select _id $. limit 5 $. asc last_name
-q3 = find [ loc /. city `eqs` "New York" ] $. select (loc /. postal_code)
+q2 = find [ first_name `eqs` "Jason", roles $*= "customer" ] $. select last_name $. limit 5 $. orderAsc last_name
+q2' = find [ first_name `eqs` "Jason", roles $*= "customer" ] $. select _id $. limit 5 $. orderAsc last_name
+q3 = find [ loc /. city `eqs` "Boston" ] $. select (loc /. postal_code)
 q3' = find [ loc /. city `eqs` "New York" ] $. select primary_day
 q4 = find [ first_name `exists` True ]
 q5 = find [ primary_day $>= 1, primary_day $<= 5 ]
-q6 = find [ last_name `eqs` "Test" ] -- $. select (loc /. postal_code)
+q6 = find [ last_name `eqs` "Test" ] $. select (loc /. postal_code)
 
 m1 = find [ last_name `eqs` "Test" ] $. modify [ last_name $:= "Liszka" ]
