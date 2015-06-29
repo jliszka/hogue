@@ -300,6 +300,9 @@ class Schema m => Queryable m where
   ($=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   ($=) = eqs
 
+  eqsObj :: (Typeable m', Queryable m') => (m -> QField m (NewId m') b) -> m' -> Clause m
+  eqsObj fld a = mkClause fld $ Eq $ getFieldValue $ primaryKey a
+
   neq :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
   neq fld a = mkClause fld $ Neq a
   ($/=) :: (Show a, Val a) => (m -> QField m a b) -> a -> Clause m
@@ -329,6 +332,9 @@ class Schema m => Queryable m where
   isIn fld a = mkClause fld $ In a
   ($=*) :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
   ($=*) = isIn
+
+  isInObjs :: (Typeable m', Queryable m') => (m -> QField m (NewId m') b) -> [m'] -> Clause m
+  isInObjs fld a = mkClause fld $ In $ fmap (getFieldValue . primaryKey) a
 
   notIn :: (Show a, Val a) => (m -> QField m a b) -> [a] -> Clause m
   notIn fld a = mkClause fld $ NotIn a
@@ -629,7 +635,7 @@ instance ToJSON Bson.ObjectId where
 
 -- TYPESAFE IDS
 
-newtype Typeable m => NewId m = NewId { getId :: Bson.ObjectId }
+newtype NewId m = NewId { getId :: Bson.ObjectId }
   deriving (Eq, Typeable)
 
 instance ToJSON (NewId m) where
@@ -649,3 +655,4 @@ instance Show (NewId m) where
 instance Typeable m => Val (NewId m) where
   val (NewId id) = Bson.val id
   cast' v = fmap NewId $ Bson.cast' v
+

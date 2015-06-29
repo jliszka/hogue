@@ -42,8 +42,7 @@ customersRoutes db = do
     json customer
 
   get (var // "requests") $ requireCustomer db $ \customer -> do
-    let cid = customer ~. User._id
-    requests <- liftIO $ find [ Request.customer_id `eqs` cid ] $.fetch db
+    requests <- liftIO $ find [ Request.customer_id `eqsObj` customer ] $.fetch db
     json requests
 
 
