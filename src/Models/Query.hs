@@ -278,7 +278,7 @@ class (ToJSON m, Generic m, GParse (Rep m)) => Schema m where
 
 class Schema m => Queryable m where
   collection :: Query m r -> T.Text
-  primaryKey :: Query m r -> m -> Field m (NewId m)
+  primaryKey :: m -> Field m (NewId m)
 
   find :: [Clause m] -> Query m m
   find cls = Query cls 0 [] SelectAll

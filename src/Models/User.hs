@@ -35,7 +35,7 @@ instance Schema User where
 
 instance Queryable User where
   collection _ = "users"
-  primaryKey _ = _id
+  primaryKey = _id
 
 data Location = Location {
   city        :: Field Location String,

@@ -29,7 +29,7 @@ instance Schema Request where
 
 instance Queryable Request where
   collection _ = "requests"
-  primaryKey _ = _id
+  primaryKey = _id
 
 
 -- q :: Query Request Request
